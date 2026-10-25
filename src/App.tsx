@@ -11,6 +11,7 @@ import { CheatSheetTable } from './components/CheatSheetTable';
 import { ExerciseDatabaseView } from './components/ExerciseDatabaseView';
 import { ProgressionRoadmap } from './components/ProgressionRoadmap';
 import { RpeCalculator } from './components/RpeCalculator';
+import { TransformationView } from './components/TransformationView';
 import { WorkoutLogHistory } from './components/WorkoutLogHistory';
 import { PrintDocument } from './components/PrintDocument';
 import { sound } from './utils/sound';
@@ -30,7 +31,7 @@ import { Printer } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'workout' | 'cheatsheet' | 'exercises' | 'roadmap' | 'calculator'
+    'overview' | 'workout' | 'cheatsheet' | 'exercises' | 'roadmap' | 'calculator' | 'transformation'
   >('overview');
 
   const [activeWorkoutType, setActiveWorkoutType] = useState<WorkoutType>('submax');
@@ -154,6 +155,12 @@ export default function App() {
           </div>
         )}
 
+        {activeTab === 'transformation' && (
+          <div className="space-y-8">
+            <TransformationView />
+          </div>
+        )}
+
         {/* History Section Drawer / Accordion */}
         <div className="mt-12 pt-8 border-t border-slate-200">
           <WorkoutLogHistory />
@@ -190,6 +197,13 @@ export default function App() {
               className="hover:text-slate-900 transition-colors cursor-pointer"
             >
               RPE Formula
+            </button>
+            <span>·</span>
+            <button
+              onClick={() => setActiveTab('transformation')}
+              className="hover:text-slate-900 transition-colors cursor-pointer"
+            >
+              Nutrition & Transformation
             </button>
           </div>
         </div>

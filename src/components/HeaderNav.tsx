@@ -3,8 +3,8 @@ import { Printer, Play, Volume2, VolumeX } from 'lucide-react';
 import { sound } from '../utils/sound';
 
 interface HeaderNavProps {
-  activeTab: 'overview' | 'workout' | 'cheatsheet' | 'exercises' | 'roadmap' | 'calculator';
-  setActiveTab: (tab: 'overview' | 'workout' | 'cheatsheet' | 'exercises' | 'roadmap' | 'calculator') => void;
+  activeTab: 'overview' | 'workout' | 'cheatsheet' | 'exercises' | 'roadmap' | 'calculator' | 'transformation';
+  setActiveTab: (tab: 'overview' | 'workout' | 'cheatsheet' | 'exercises' | 'roadmap' | 'calculator' | 'transformation') => void;
   onPrint: () => void;
   soundEnabled: boolean;
   onToggleSound: () => void;
@@ -94,6 +94,16 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           >
             RPE Calculator
           </button>
+          <button
+            onClick={() => setActiveTab('transformation')}
+            className={`whitespace-nowrap transition-colors py-1 cursor-pointer ${
+              activeTab === 'transformation'
+                ? 'text-blue-600 font-semibold border-b-2 border-blue-600'
+                : 'hover:text-slate-900'
+            }`}
+          >
+            Nutrition & Transformation
+          </button>
         </nav>
 
         {/* Zone 3: Primary Action & Sound control */}
@@ -179,6 +189,14 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           }`}
         >
           Calculator
+        </button>
+        <button
+          onClick={() => setActiveTab('transformation')}
+          className={`px-2.5 py-1 text-xs font-medium whitespace-nowrap rounded ${
+            activeTab === 'transformation' ? 'text-blue-600 font-bold bg-white shadow-xs' : 'text-slate-600'
+          }`}
+        >
+          Nutrition / Tracker
         </button>
       </div>
     </header>
