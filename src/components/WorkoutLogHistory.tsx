@@ -16,14 +16,24 @@ export const WorkoutLogHistory: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
   useEffect(() => {
-    const saved = localStorage.getItem('planche_workout_history');
-    if (saved) {
-      try {
-        setLogs(JSON.parse(saved));
-      } catch {
-        // ignore
+    const loadLogs = () => {
+      const saved = localStorage.getItem('planche_workout_history');
+      if (saved) {
+        try {
+          setLogs(JSON.parse(saved));
+        } catch {
+          // ignore
+        }
+      } else {
+        setLogs([]);
       }
-    }
+    };
+
+    loadLogs();
+    window.addEventListener('planche_history_updated', loadLogs);
+    return () => {
+      window.removeEventListener('planche_history_updated', loadLogs);
+    };
   }, []);
 
   const [confirmClear, setConfirmClear] = useState(false);
@@ -32,6 +42,7 @@ export const WorkoutLogHistory: React.FC = () => {
     localStorage.removeItem('planche_workout_history');
     setLogs([]);
     setConfirmClear(false);
+    window.dispatchEvent(new Event('planche_history_updated'));
   };
 
   const formatDate = (isoString: string) => {

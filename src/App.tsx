@@ -13,6 +13,7 @@ import { ProgressionRoadmap } from './components/ProgressionRoadmap';
 import { RpeCalculator } from './components/RpeCalculator';
 import { TransformationView } from './components/TransformationView';
 import { WorkoutLogHistory } from './components/WorkoutLogHistory';
+import { WorkoutCalendarView } from './components/WorkoutCalendarView';
 import { PrintDocument, PrintScope } from './components/PrintDocument';
 import { sound } from './utils/sound';
 import {
@@ -217,9 +218,10 @@ export default function App() {
           </div>
         )}
 
-        {/* History Section Drawer / Accordion */}
-        <div className="mt-12 pt-8 border-t border-slate-200">
+        {/* History Section & MyFitnessPal Style Activity Calendar */}
+        <div className="mt-12 pt-8 border-t border-slate-200 space-y-8">
           <WorkoutLogHistory />
+          <WorkoutCalendarView />
         </div>
       </main>
 

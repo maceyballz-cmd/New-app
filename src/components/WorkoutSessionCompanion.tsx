@@ -312,6 +312,7 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
     });
     localStorage.setItem('planche_workout_history', JSON.stringify(logs.slice(0, 50)));
     localStorage.removeItem('planche_live_session_notes');
+    window.dispatchEvent(new Event('planche_history_updated'));
 
     if (onFinishWorkout) onFinishWorkout();
   };
