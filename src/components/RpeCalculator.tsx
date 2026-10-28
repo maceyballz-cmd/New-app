@@ -21,7 +21,11 @@ export const RpeCalculator: React.FC<RpeCalculatorProps> = ({ exerciseDatabase }
     return allDatabaseExercises.filter(
       (e) =>
         e.type === 'Straight-Arm Isometric' ||
-        e.category === 'planche' ||
+        e.type === 'Core Isometric' ||
+        e.type.toLowerCase().includes('isometric') ||
+        e.category === 'planche-progressions' ||
+        e.category === 'planche-press' ||
+        (e.category as string) === 'planche' ||
         e.id.includes('planche') ||
         e.id.includes('lean') ||
         e.id.includes('hold') ||
@@ -87,13 +91,33 @@ export const RpeCalculator: React.FC<RpeCalculatorProps> = ({ exerciseDatabase }
   // ==========================================
   // BOX 2: REPETITION & STRENGTH FORMULA
   // ==========================================
-  const pushExercises = useMemo(
-    () => allDatabaseExercises.filter((e) => e.category === 'push' && !e.id.startsWith('custom-db-')),
+  const planchePushExercises = useMemo(
+    () => allDatabaseExercises.filter((e) => e.category === 'planche-push' && !e.id.startsWith('custom-db-')),
     [allDatabaseExercises]
   );
 
-  const accessoryExercises = useMemo(
-    () => allDatabaseExercises.filter((e) => e.category === 'accessory' && !e.id.startsWith('custom-db-')),
+  const planchePressExercises = useMemo(
+    () => allDatabaseExercises.filter((e) => e.category === 'planche-press' && !e.id.startsWith('custom-db-')),
+    [allDatabaseExercises]
+  );
+
+  const bentArmExercises = useMemo(
+    () => allDatabaseExercises.filter((e) => e.category === 'bent-arm' && !e.id.startsWith('custom-db-')),
+    [allDatabaseExercises]
+  );
+
+  const conditioningExercises = useMemo(
+    () => allDatabaseExercises.filter((e) => e.category === 'conditioning' && !e.id.startsWith('custom-db-')),
+    [allDatabaseExercises]
+  );
+
+  const coreExercises = useMemo(
+    () => allDatabaseExercises.filter((e) => e.category === 'core' && !e.id.startsWith('custom-db-')),
+    [allDatabaseExercises]
+  );
+
+  const plancheProgExercises = useMemo(
+    () => allDatabaseExercises.filter((e) => e.category === 'planche-progressions' && !e.id.startsWith('custom-db-')),
     [allDatabaseExercises]
   );
 
@@ -102,19 +126,12 @@ export const RpeCalculator: React.FC<RpeCalculatorProps> = ({ exerciseDatabase }
     [allDatabaseExercises]
   );
 
-  const otherRepExercises = useMemo(
-    () =>
-      allDatabaseExercises.filter(
-        (e) =>
-          e.category !== 'push' &&
-          e.category !== 'accessory' &&
-          !e.id.startsWith('custom-db-')
-      ),
-    [allDatabaseExercises]
-  );
-
   const [selectedRepExerciseId, setSelectedRepExerciseId] = useState<string>(
-    () => allDatabaseExercises.find((e) => e.category === 'push')?.id || allDatabaseExercises[0]?.id || ''
+    () =>
+      allDatabaseExercises.find((e) => e.category === 'planche-push')?.id ||
+      allDatabaseExercises.find((e) => e.category === 'bent-arm')?.id ||
+      allDatabaseExercises[0]?.id ||
+      ''
   );
 
   const selectedRepExerciseObj = useMemo(() => {
@@ -122,7 +139,7 @@ export const RpeCalculator: React.FC<RpeCalculatorProps> = ({ exerciseDatabase }
   }, [allDatabaseExercises, selectedRepExerciseId]);
 
   const [repExerciseName, setRepExerciseName] = useState<string>(
-    () => selectedRepExerciseObj?.name || 'Handstand Push-Ups'
+    () => selectedRepExerciseObj?.name || 'Pseudo Planche Push-Ups'
   );
   const [maxReps, setMaxReps] = useState<number>(5);
 
@@ -334,25 +351,62 @@ export const RpeCalculator: React.FC<RpeCalculatorProps> = ({ exerciseDatabase }
                 onChange={(e) => handleRepDropdownSelect(e.target.value)}
                 className="w-full text-xs font-bold text-slate-900 bg-white border border-slate-300 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer shadow-xs"
               >
-                {/* 1. Overhead & Pushing */}
-                <optgroup label="── Overhead & Pushing (Strength) ──">
-                  {pushExercises.map((ex) => (
-                    <option key={ex.id} value={ex.id}>
-                      {ex.name} ({ex.targetArea.split(',')[0]})
-                    </option>
-                  ))}
-                </optgroup>
+                {/* 1. Planche Push */}
+                {planchePushExercises.length > 0 && (
+                  <optgroup label="── Planche Push ──">
+                    {planchePushExercises.map((ex) => (
+                      <option key={ex.id} value={ex.id}>
+                        {ex.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
 
-                {/* 2. Tendon & Accessories */}
-                <optgroup label="── Tendon & Accessories (Strength / Prehab) ──">
-                  {accessoryExercises.map((ex) => (
-                    <option key={ex.id} value={ex.id}>
-                      {ex.name} ({ex.targetArea.split(',')[0]})
-                    </option>
-                  ))}
-                </optgroup>
+                {/* 2. Planche Press */}
+                {planchePressExercises.length > 0 && (
+                  <optgroup label="── Planche Press ──">
+                    {planchePressExercises.map((ex) => (
+                      <option key={ex.id} value={ex.id}>
+                        {ex.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
 
-                {/* 3. Custom Added Exercises */}
+                {/* 3. Bent Arm Progressions */}
+                {bentArmExercises.length > 0 && (
+                  <optgroup label="── Bent Arm Progressions ──">
+                    {bentArmExercises.map((ex) => (
+                      <option key={ex.id} value={ex.id}>
+                        {ex.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+
+                {/* 4. Conditioning */}
+                {conditioningExercises.length > 0 && (
+                  <optgroup label="── Conditioning ──">
+                    {conditioningExercises.map((ex) => (
+                      <option key={ex.id} value={ex.id}>
+                        {ex.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+
+                {/* 5. Core */}
+                {coreExercises.length > 0 && (
+                  <optgroup label="── Core ──">
+                    {coreExercises.map((ex) => (
+                      <option key={ex.id} value={ex.id}>
+                        {ex.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+
+                {/* 6. Custom Added Exercises */}
                 {customRepExercises.length > 0 && (
                   <optgroup label="── Custom Added Exercises (Live Synced) ──">
                     {customRepExercises.map((ex) => (
@@ -363,14 +417,16 @@ export const RpeCalculator: React.FC<RpeCalculatorProps> = ({ exerciseDatabase }
                   </optgroup>
                 )}
 
-                {/* 4. Other Skills & Drills */}
-                <optgroup label="── Other Database Skills & Drills ──">
-                  {otherRepExercises.map((ex) => (
-                    <option key={ex.id} value={ex.id}>
-                      {ex.name} ({ex.categoryLabel})
-                    </option>
-                  ))}
-                </optgroup>
+                {/* 7. Planche Progressions */}
+                {plancheProgExercises.length > 0 && (
+                  <optgroup label="── Planche Progressions ──">
+                    {plancheProgExercises.map((ex) => (
+                      <option key={ex.id} value={ex.id}>
+                        {ex.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
 

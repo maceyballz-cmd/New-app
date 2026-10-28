@@ -221,6 +221,51 @@ export function generateDefaultProgressEntries(startDateStr: string = INITIAL_ST
   return entries;
 }
 
+export function generateEmptyProgressEntries(startDateStr: string = INITIAL_START_DATE): WeeklyProgressEntry[] {
+  const entries: WeeklyProgressEntry[] = [];
+  for (let w = 0; w <= 12; w++) {
+    const isStart = w === 0;
+    const isMilestone = w === 4 || w === 8 || w === 12;
+    const date = calculateDateForWeek(startDateStr, w);
+
+    entries.push({
+      weekNumber: w,
+      weekLabel: isStart ? 'Start Date' : `Week ${w}`,
+      date,
+      isMilestone,
+      weight: '',
+      chest: '',
+      rightArm: '',
+      leftArm: '',
+      navelAbove: '',
+      navelAt: '',
+      navelBelow: '',
+      hips: '',
+      rightThigh: '',
+      leftThigh: '',
+      height: '',
+      targetRateWeight: '',
+      targetDailySteps: '',
+      actualDailySteps: '',
+      trainingTime: '',
+      mealTimes: '',
+      trainingDayCalories: '',
+      trainingDayMacros: '',
+      restDayCalories: '',
+      restDayMacros: '',
+      calorieAdherence: '',
+      trainingAdherence: '',
+      sleepScore: '',
+      stressScore: '',
+      hungerScore: '',
+      fatigueScore: '',
+      keySkillProgress: '',
+      photos: {},
+    });
+  }
+  return entries;
+}
+
 const STORAGE_KEY = 'planche_transformation_progress_data';
 const START_DATE_KEY = 'planche_transformation_start_date';
 

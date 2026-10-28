@@ -10,6 +10,7 @@ import {
   Download,
   Trash2,
   RefreshCw,
+  Eraser,
   Eye,
   ArrowRightLeft,
   X,
@@ -18,12 +19,14 @@ import {
   Info,
   ChevronLeft,
   ChevronRight,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   WeeklyProgressEntry,
   INITIAL_START_DATE,
   calculateDateForWeek,
   generateDefaultProgressEntries,
+  generateEmptyProgressEntries,
   getStoredTransformationData,
   saveStoredTransformationData,
 } from '../data/transformationData';
@@ -44,6 +47,9 @@ export const TransformationView: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [pendingUploadAngle, setPendingUploadAngle] = useState<'front' | 'back' | 'leftSide' | 'rightSide' | null>(null);
+
+  const [showClearModal, setShowClearModal] = useState<boolean>(false);
+  const [showResetModal, setShowResetModal] = useState<boolean>(false);
 
   // Trigger brief auto-save toast
   const triggerSaveNotification = (msg: string = 'Changes saved') => {
@@ -86,14 +92,33 @@ export const TransformationView: React.FC = () => {
     saveStoredTransformationData(data.startDate, updatedEntries);
   };
 
-  // Reset to default baseline data
+  // Open in-app Reset modal
   const handleResetData = () => {
-    if (window.confirm('Reset all transformation and nutrition tracking data to initial template? Custom entries and photos will be reset.')) {
-      const defaults = generateDefaultProgressEntries(INITIAL_START_DATE);
-      setData({ startDate: INITIAL_START_DATE, entries: defaults });
-      saveStoredTransformationData(INITIAL_START_DATE, defaults);
-      triggerSaveNotification('Reset to baseline template');
-    }
+    setShowResetModal(true);
+  };
+
+  // Execute reset to default baseline template
+  const executeResetDefaults = () => {
+    const defaults = generateDefaultProgressEntries(INITIAL_START_DATE);
+    setData({ startDate: INITIAL_START_DATE, entries: defaults });
+    saveStoredTransformationData(INITIAL_START_DATE, defaults);
+    triggerSaveNotification('Reset to baseline template');
+    setShowResetModal(false);
+  };
+
+  // Open in-app Clear modal
+  const handleClearForm = () => {
+    setShowClearModal(true);
+  };
+
+  // Execute clear all form entries and photos for a fresh blank tracker
+  const executeClearForm = () => {
+    const blankEntries = generateEmptyProgressEntries(data.startDate);
+    const nextData = { startDate: data.startDate, entries: blankEntries };
+    setData(nextData);
+    saveStoredTransformationData(data.startDate, blankEntries);
+    triggerSaveNotification('Form cleared. All measurements reset to blank.');
+    setShowClearModal(false);
   };
 
   // Export CSV
@@ -206,12 +231,13 @@ export const TransformationView: React.FC = () => {
 
   // Helper stats
   const startWeight = parseFloat(data.entries[0]?.weight) || 0;
-  const currentWeekEntry = [...data.entries].reverse().find((e) => e.weight && parseFloat(e.weight) > 0) || data.entries[0];
-  const currentWeight = parseFloat(currentWeekEntry?.weight) || startWeight;
+  const currentWeekEntry = [...data.entries].reverse().find((e) => e.weight && parseFloat(e.weight) > 0) || null;
+  const currentWeight = currentWeekEntry ? parseFloat(currentWeekEntry.weight) : (startWeight || 0);
   const weightChange = currentWeight && startWeight ? (currentWeight - startWeight).toFixed(1) : '0.0';
 
   const startNavel = parseFloat(data.entries[0]?.navelAt) || 0;
-  const currentNavel = parseFloat(currentWeekEntry?.navelAt) || startNavel;
+  const currentNavelEntry = [...data.entries].reverse().find((e) => e.navelAt && parseFloat(e.navelAt) > 0) || null;
+  const currentNavel = currentNavelEntry ? parseFloat(currentNavelEntry.navelAt) : (startNavel || 0);
   const navelChange = currentNavel && startNavel ? (currentNavel - startNavel).toFixed(1) : '0.0';
 
   // Selected entry for photos tab
@@ -235,6 +261,82 @@ export const TransformationView: React.FC = () => {
         <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-lg shadow-xl text-xs font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
           <span>{saveToast}</span>
+        </div>
+      )}
+
+      {/* In-App Confirmation Modal: Clear Form */}
+      {showClearModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setShowClearModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 text-slate-800"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mb-4">
+              <Eraser className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900">Clear Transformation Form?</h3>
+            <p className="text-xs sm:text-sm text-slate-600 mt-2 leading-relaxed">
+              This will wipe all 13 weeks of data including weights, body circumferences, daily step counts, nutrition targets, biofeedback scores, and all uploaded progress photos. You will get a completely blank spreadsheet to log your personal data.
+            </p>
+            <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowClearModal(false)}
+                className="px-4 py-2 text-xs font-medium text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executeClearForm}
+                className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <Eraser className="w-3.5 h-3.5" />
+                <span>Yes, Clear Everything</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-App Confirmation Modal: Reset Defaults */}
+      {showResetModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setShowResetModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 text-slate-800"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mb-4">
+              <RefreshCw className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900">Reset to Sample Template?</h3>
+            <p className="text-xs sm:text-sm text-slate-600 mt-2 leading-relaxed">
+              This will reload the reference 12-week physique audit template data and replace your current entries and uploaded photos.
+            </p>
+            <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowResetModal(false)}
+                className="px-4 py-2 text-xs font-medium text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executeResetDefaults}
+                className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Reset to Template</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -303,6 +405,7 @@ export const TransformationView: React.FC = () => {
 
             <button
               onClick={handleExportCSV}
+              type="button"
               className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
               title="Download spreadsheet as CSV"
             >
@@ -311,12 +414,23 @@ export const TransformationView: React.FC = () => {
             </button>
 
             <button
+              onClick={handleClearForm}
+              type="button"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-700 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors border border-rose-200 cursor-pointer active:scale-95"
+              title="Clear all measurements and photos to start with a blank form"
+            >
+              <Eraser className="w-3.5 h-3.5 text-rose-600" />
+              <span>Clear Form</span>
+            </button>
+
+            <button
               onClick={handleResetData}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-500 hover:text-slate-800 bg-slate-50 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200 cursor-pointer"
-              title="Reset to original template values"
+              type="button"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-500 hover:text-slate-800 bg-slate-50 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200 cursor-pointer active:scale-95"
+              title="Reset to sample baseline template values"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              <span>Reset</span>
+              <span>Reset Defaults</span>
             </button>
           </div>
         </div>
@@ -329,19 +443,21 @@ export const TransformationView: React.FC = () => {
             </span>
             <div className="flex items-baseline gap-1.5 mt-1">
               <span className="text-xl font-bold text-slate-900 tabular-nums">
-                {currentWeight || '—'}
+                {currentWeight > 0 ? `${currentWeight}` : '—'}
               </span>
               <span className="text-xs text-slate-500">lbs</span>
-              <span
-                className={`ml-auto text-xs font-semibold tabular-nums ${
-                  parseFloat(weightChange) <= 0 ? 'text-emerald-600' : 'text-amber-600'
-                }`}
-              >
-                {parseFloat(weightChange) > 0 ? `+${weightChange}` : weightChange} lbs
-              </span>
+              {startWeight > 0 && currentWeight > 0 && (
+                <span
+                  className={`ml-auto text-xs font-semibold tabular-nums ${
+                    parseFloat(weightChange) <= 0 ? 'text-emerald-600' : 'text-amber-600'
+                  }`}
+                >
+                  {parseFloat(weightChange) > 0 ? `+${weightChange}` : weightChange} lbs
+                </span>
+              )}
             </div>
             <span className="text-[10px] text-slate-400 mt-0.5 block">
-              From {startWeight} lbs at start
+              {startWeight > 0 ? `From ${startWeight} lbs at start` : 'Enter start weight below'}
             </span>
           </div>
 
@@ -351,19 +467,21 @@ export const TransformationView: React.FC = () => {
             </span>
             <div className="flex items-baseline gap-1.5 mt-1">
               <span className="text-xl font-bold text-slate-900 tabular-nums">
-                {currentNavel || '—'}
+                {currentNavel > 0 ? `${currentNavel}` : '—'}
               </span>
               <span className="text-xs text-slate-500">cm</span>
-              <span
-                className={`ml-auto text-xs font-semibold tabular-nums ${
-                  parseFloat(navelChange) <= 0 ? 'text-emerald-600' : 'text-amber-600'
-                }`}
-              >
-                {parseFloat(navelChange) > 0 ? `+${navelChange}` : navelChange} cm
-              </span>
+              {startNavel > 0 && currentNavel > 0 && (
+                <span
+                  className={`ml-auto text-xs font-semibold tabular-nums ${
+                    parseFloat(navelChange) <= 0 ? 'text-emerald-600' : 'text-amber-600'
+                  }`}
+                >
+                  {parseFloat(navelChange) > 0 ? `+${navelChange}` : navelChange} cm
+                </span>
+              )}
             </div>
             <span className="text-[10px] text-slate-400 mt-0.5 block">
-              Key waistline indicator
+              {startNavel > 0 ? 'Key waistline indicator' : 'Enter waist circumference'}
             </span>
           </div>
 
@@ -373,12 +491,12 @@ export const TransformationView: React.FC = () => {
             </span>
             <div className="flex items-baseline gap-1.5 mt-1">
               <span className="text-xl font-bold text-slate-900 tabular-nums">
-                {data.entries[0]?.trainingDayCalories || '2550'}
+                {data.entries[0]?.trainingDayCalories ? `${data.entries[0].trainingDayCalories}` : '—'}
               </span>
               <span className="text-xs text-slate-500">kcal</span>
             </div>
             <span className="text-[10px] text-slate-400 mt-0.5 block truncate">
-              {data.entries[0]?.trainingDayMacros || 'P:180 C:300 F:70'}
+              {data.entries[0]?.trainingDayMacros ? data.entries[0].trainingDayMacros : '—'}
             </span>
           </div>
 
@@ -388,12 +506,12 @@ export const TransformationView: React.FC = () => {
             </span>
             <div className="flex items-baseline gap-1.5 mt-1">
               <span className="text-xl font-bold text-slate-900 tabular-nums">
-                {data.entries[0]?.restDayCalories || '2250'}
+                {data.entries[0]?.restDayCalories ? `${data.entries[0].restDayCalories}` : '—'}
               </span>
               <span className="text-xs text-slate-500">kcal</span>
             </div>
             <span className="text-[10px] text-slate-400 mt-0.5 block truncate">
-              {data.entries[0]?.restDayMacros || 'P:180 C:180 F:90'}
+              {data.entries[0]?.restDayMacros ? data.entries[0].restDayMacros : '—'}
             </span>
           </div>
         </div>

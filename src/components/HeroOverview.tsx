@@ -83,17 +83,11 @@ export const HeroOverview: React.FC<HeroOverviewProps> = ({
   };
 
   const handleReset = () => {
-    if (
-      window.confirm(
-        `Reset the "${draftWorkout.intensityLabel}" workout back to its original prescribed template?`
-      )
-    ) {
-      onResetWorkout(activeWorkoutType);
-      setIsEditing(false);
-      sound.playSuccessChime();
-      setToastMessage('Workout restored to default template!');
-      setTimeout(() => setToastMessage(null), 3000);
-    }
+    onResetWorkout(activeWorkoutType);
+    setIsEditing(false);
+    sound.playSuccessChime();
+    setToastMessage('Workout restored to default template!');
+    setTimeout(() => setToastMessage(null), 3000);
   };
 
   // Mutators for Draft Editing
@@ -288,17 +282,9 @@ export const HeroOverview: React.FC<HeroOverviewProps> = ({
                   key={type.id}
                   onClick={() => {
                     if (isEditing) {
-                      if (
-                        window.confirm(
-                          'You have unsaved changes in edit mode. Switch workout anyway?'
-                        )
-                      ) {
-                        setIsEditing(false);
-                        onSelectWorkoutType(type.id);
-                      }
-                    } else {
-                      onSelectWorkoutType(type.id);
+                      setIsEditing(false);
                     }
+                    onSelectWorkoutType(type.id);
                   }}
                   className={`px-3.5 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${activeClasses}`}
                 >

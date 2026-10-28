@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { DatabaseExercise } from '../data/exerciseDatabase';
+import { DatabaseExercise, ExerciseCategory, CATEGORY_LABELS } from '../data/exerciseDatabase';
 import {
   Search,
   Database,
@@ -23,7 +23,7 @@ interface ExerciseDatabaseViewProps {
   onStartExercise?: (exerciseId: string) => void;
 }
 
-type FilterCategory = 'all' | 'planche' | 'push' | 'prep' | 'accessory' | 'mobility';
+type FilterCategory = 'all' | ExerciseCategory;
 
 export const ExerciseDatabaseView: React.FC<ExerciseDatabaseViewProps> = ({
   exercises,
@@ -38,8 +38,8 @@ export const ExerciseDatabaseView: React.FC<ExerciseDatabaseViewProps> = ({
   const [showAddModal, setShowAddModal] = useState(false);
   const [newExercise, setNewExercise] = useState<Partial<DatabaseExercise>>({
     name: '',
-    category: 'push',
-    categoryLabel: 'Overhead & Pushing',
+    category: 'planche-push',
+    categoryLabel: CATEGORY_LABELS['planche-push'],
     targetArea: 'Shoulders, Triceps & Chest',
     difficulty: 'Intermediate',
     type: 'Bent-Arm Dynamic',
@@ -59,18 +59,11 @@ export const ExerciseDatabaseView: React.FC<ExerciseDatabaseViewProps> = ({
     setExpandedId((prev) => (prev === id ? null : id));
   };
 
-  const handleCategoryChange = (category: 'planche' | 'push' | 'prep' | 'accessory' | 'mobility') => {
-    const labels: Record<string, string> = {
-      planche: 'Planche Skills',
-      push: 'Overhead & Pushing',
-      prep: 'Joint Prep & Wrists',
-      accessory: 'Tendon & Accessories',
-      mobility: 'Mobility & Recovery',
-    };
+  const handleCategoryChange = (category: ExerciseCategory) => {
     setNewExercise((prev) => ({
       ...prev,
       category,
-      categoryLabel: labels[category],
+      categoryLabel: CATEGORY_LABELS[category],
     }));
   };
 
@@ -116,8 +109,8 @@ export const ExerciseDatabaseView: React.FC<ExerciseDatabaseViewProps> = ({
     const created: DatabaseExercise = {
       id: `custom-db-${Date.now()}`,
       name: newExercise.name.trim(),
-      category: newExercise.category || 'push',
-      categoryLabel: newExercise.categoryLabel || 'Overhead & Pushing',
+      category: newExercise.category || 'planche-push',
+      categoryLabel: newExercise.categoryLabel || CATEGORY_LABELS['planche-push'],
       targetArea: newExercise.targetArea || 'Target Musculature',
       difficulty: newExercise.difficulty || 'Intermediate',
       type: newExercise.type || 'Bent-Arm Dynamic',
@@ -143,8 +136,8 @@ export const ExerciseDatabaseView: React.FC<ExerciseDatabaseViewProps> = ({
     // Reset form
     setNewExercise({
       name: '',
-      category: 'push',
-      categoryLabel: 'Overhead & Pushing',
+      category: 'planche-push',
+      categoryLabel: CATEGORY_LABELS['planche-push'],
       targetArea: 'Shoulders, Triceps & Chest',
       difficulty: 'Intermediate',
       type: 'Bent-Arm Dynamic',
@@ -158,12 +151,10 @@ export const ExerciseDatabaseView: React.FC<ExerciseDatabaseViewProps> = ({
   };
 
   const handleDeleteExercise = (id: string, name: string) => {
-    if (window.confirm(`Are you sure you want to remove "${name}" from the exercise database?`)) {
-      const updated = exercises.filter((ex) => ex.id !== id);
-      onUpdateExercises(updated);
-      setToastMessage(`"${name}" removed from database.`);
-      setTimeout(() => setToastMessage(null), 3000);
-    }
+    const updated = exercises.filter((ex) => ex.id !== id);
+    onUpdateExercises(updated);
+    setToastMessage(`"${name}" removed from database.`);
+    setTimeout(() => setToastMessage(null), 3000);
   };
 
   const filteredExercises = exercises.filter((ex) => {
@@ -265,16 +256,17 @@ export const ExerciseDatabaseView: React.FC<ExerciseDatabaseViewProps> = ({
                   value={newExercise.category}
                   onChange={(e) =>
                     handleCategoryChange(
-                      e.target.value as 'planche' | 'push' | 'prep' | 'accessory' | 'mobility'
+                      e.target.value as ExerciseCategory
                     )
                   }
                   className="w-full text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800"
                 >
-                  <option value="push">Overhead & Pushing (Strength)</option>
-                  <option value="planche">Planche Skills (Straight-Arm)</option>
-                  <option value="accessory">Tendon & Accessories (Prehab)</option>
-                  <option value="prep">Joint Prep & Wrists</option>
-                  <option value="mobility">Mobility & Recovery</option>
+                  <option value="planche-progressions">Planche Progressions</option>
+                  <option value="planche-push">Planche Push</option>
+                  <option value="planche-press">Planche Press</option>
+                  <option value="bent-arm">Bent Arm Progressions</option>
+                  <option value="conditioning">Conditioning</option>
+                  <option value="core">Core</option>
                 </select>
               </div>
             </div>
@@ -296,6 +288,7 @@ export const ExerciseDatabaseView: React.FC<ExerciseDatabaseViewProps> = ({
                 >
                   <option value="Bent-Arm Dynamic">Bent-Arm Dynamic (Strength)</option>
                   <option value="Straight-Arm Isometric">Straight-Arm Isometric</option>
+                  <option value="Core Isometric">Core Isometric</option>
                   <option value="Joint Conditioning">Joint Conditioning</option>
                   <option value="Restorative Mobility">Restorative Mobility</option>
                 </select>
@@ -508,12 +501,13 @@ export const ExerciseDatabaseView: React.FC<ExerciseDatabaseViewProps> = ({
       {/* Category Filter Tabs */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
         {[
-          { id: 'all', label: `All Exercises (${exercises.length})` },
-          { id: 'planche', label: 'Planche Skills' },
-          { id: 'push', label: 'Overhead & Pushing' },
-          { id: 'prep', label: 'Joint Prep & Wrists' },
-          { id: 'accessory', label: 'Tendon & Accessories' },
-          { id: 'mobility', label: 'Mobility & Recovery' },
+          { id: 'all', label: `All (${exercises.length})` },
+          { id: 'planche-progressions', label: 'Planche Progressions' },
+          { id: 'planche-push', label: 'Planche Push' },
+          { id: 'planche-press', label: 'Planche Press' },
+          { id: 'bent-arm', label: 'Bent Arm Progressions' },
+          { id: 'conditioning', label: 'Conditioning' },
+          { id: 'core', label: 'Core' },
         ].map((tab) => {
           const active = selectedCategory === tab.id;
           return (
@@ -593,8 +587,24 @@ export const ExerciseDatabaseView: React.FC<ExerciseDatabaseViewProps> = ({
                         </div>
                       </td>
 
-                      <td className="py-3.5 px-4 text-xs text-slate-600 font-medium">
-                        {ex.categoryLabel}
+                      <td className="py-3.5 px-4 text-xs font-semibold whitespace-nowrap">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
+                            ex.category === 'planche-progressions'
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : ex.category === 'planche-push'
+                              ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                              : ex.category === 'planche-press'
+                              ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                              : ex.category === 'bent-arm'
+                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                              : ex.category === 'conditioning'
+                              ? 'bg-sky-50 text-sky-700 border border-sky-200'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
+                          }`}
+                        >
+                          {ex.categoryLabel}
+                        </span>
                       </td>
 
                       <td className="py-3.5 px-4 text-xs text-slate-700 max-w-xs">
