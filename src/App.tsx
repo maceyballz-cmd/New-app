@@ -166,10 +166,6 @@ export default function App() {
               onResetWorkout={handleResetWorkout}
               onStartSession={handleStartSession}
             />
-            <CheatSheetTable
-              workout={currentWorkout}
-              onStartExercise={(name) => handleStartSession()}
-            />
           </div>
         )}
 
