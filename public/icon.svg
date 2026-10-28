@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="pwaGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563EB" />
+      <stop offset="100%" stop-color="#0F172A" />
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#60A5FA" />
+    </linearGradient>
+  </defs>
+  <!-- Background Rounded Rect -->
+  <rect width="512" height="512" rx="112" fill="url(#pwaGrad)" />
+  <!-- Outer subtle glowing ring -->
+  <circle cx="256" cy="256" r="210" stroke="url(#accentGrad)" stroke-width="4" stroke-opacity="0.4" />
+  
+  <!-- Planche Athlete Stylized Silhouette -->
+  <!-- Straight horizontal body / torso & legs -->
+  <path d="M 110 256 C 110 248 116 242 124 242 L 390 242 C 398 242 404 248 404 256 C 404 264 398 270 390 270 L 124 270 C 116 270 110 264 110 256 Z" fill="#FFFFFF" />
+  
+  <!-- Head -->
+  <circle cx="430" cy="256" r="28" fill="#FFFFFF" />
+  
+  <!-- Supporting Arm (Straight locked elbow, leaning forward) -->
+  <path d="M 310 256 L 310 370 C 310 376 305 380 300 380 L 292 380 C 286 380 282 376 282 370 L 282 256 Z" fill="#FFFFFF" />
+  
+  <!-- Parallette Hand Grip Bar -->
+  <rect x="250" y="375" width="80" height="14" rx="7" fill="url(#accentGrad)" />
+  
+  <!-- Parallette Legs -->
+  <rect x="260" y="389" width="10" height="28" rx="4" fill="#94A3B8" />
+  <rect x="310" y="389" width="10" height="28" rx="4" fill="#94A3B8" />
+  <rect x="245" y="415" width="40" height="8" rx="4" fill="#64748B" />
+  <rect x="295" y="415" width="40" height="8" rx="4" fill="#64748B" />
+
+  <!-- Accent Star / Power Sparkle -->
+  <path d="M 355 210 Q 360 220 370 225 Q 360 230 355 240 Q 350 230 340 225 Q 350 220 355 210 Z" fill="#38BDF8" />
+</svg>

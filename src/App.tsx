@@ -14,6 +14,7 @@ import { RpeCalculator } from './components/RpeCalculator';
 import { TransformationView } from './components/TransformationView';
 import { WorkoutLogHistory } from './components/WorkoutLogHistory';
 import { WorkoutCalendarView } from './components/WorkoutCalendarView';
+import { OfflineIndicator } from './components/OfflineIndicator';
 import { PrintDocument, PrintScope } from './components/PrintDocument';
 import { sound } from './utils/sound';
 import {
@@ -421,6 +422,9 @@ export default function App() {
         printScope={printScope}
         exerciseDatabase={exerciseDatabase}
       />
+
+      {/* Offline Status Indicator */}
+      <OfflineIndicator />
     </div>
   );
 }

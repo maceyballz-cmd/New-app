@@ -1,5 +1,6 @@
 import React from 'react';
 import { Printer, Play, Volume2, VolumeX, Flame } from 'lucide-react';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderNavProps {
   activeTab: 'overview' | 'workout' | 'cheatsheet' | 'exercises' | 'roadmap' | 'calculator' | 'transformation';
@@ -43,6 +44,8 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
 
           {/* Quick Action Controls */}
           <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+            {/* Download for Desktop App Button */}
+            <PWAInstallButton variant="nav" />
             {/* Sound Effects Toggle */}
             <button
               onClick={onToggleSound}
