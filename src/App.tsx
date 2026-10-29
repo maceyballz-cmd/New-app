@@ -170,6 +170,12 @@ function MainApp() {
               onResetWorkout={handleResetWorkout}
               onStartSession={handleStartSession}
             />
+
+            {/* History Section & Activity Calendar (Dashboard Only) */}
+            <div className="mt-12 pt-8 border-t border-slate-200 space-y-8">
+              <WorkoutLogHistory />
+              <WorkoutCalendarView />
+            </div>
           </div>
         )}
 
@@ -217,12 +223,6 @@ function MainApp() {
             <TransformationView />
           </div>
         )}
-
-        {/* History Section & MyFitnessPal Style Activity Calendar */}
-        <div className="mt-12 pt-8 border-t border-slate-200 space-y-8">
-          <WorkoutLogHistory />
-          <WorkoutCalendarView />
-        </div>
       </main>
 
       {/* Footer conforming to design constitution */}
