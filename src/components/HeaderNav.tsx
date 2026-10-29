@@ -103,7 +103,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
               }`}
             >
-              Program
+              Dashboard
             </button>
 
             <button
@@ -148,7 +148,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
               }`}
             >
-              Roadmap
+              Roadmap Plan
             </button>
 
             <button
@@ -188,7 +188,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                 : 'bg-white text-slate-700 border border-slate-200/80 hover:bg-slate-100'
             }`}
           >
-            Program
+            Dashboard
           </button>
 
           <button
@@ -235,7 +235,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                 : 'bg-white text-slate-700 border border-slate-200/80 hover:bg-slate-100'
             }`}
           >
-            Roadmap
+            Roadmap Plan
           </button>
 
           <button

@@ -34,7 +34,7 @@ import { Printer, X, CheckCircle2, Layers, BookOpen, Sparkles, FileText } from '
 
 const TAB_INFO: Record<string, { title: string; desc: string }> = {
   overview: {
-    title: 'Program Overview & Guidelines',
+    title: 'Dashboard Overview & Guidelines',
     desc: 'Prescribed rules, weekly frequency, and detailed 4-phase exercise breakdown.',
   },
   workout: {
@@ -50,7 +50,7 @@ const TAB_INFO: Record<string, { title: string; desc: string }> = {
     desc: 'All 6 movement categories with difficulty levels, volume, and biomechanical cues.',
   },
   roadmap: {
-    title: 'Progression Path to Straddle Planche',
+    title: 'Roadmap Plan: Progression to Straddle Planche',
     desc: '6-step progression ladder with prerequisites, hold times, and form checkpoints.',
   },
   calculator: {
@@ -365,10 +365,10 @@ function MainApp() {
                 </span>
                 <div className="grid grid-cols-2 gap-1.5 text-xs">
                   {[
-                    { id: 'overview', label: 'Program & Rules' },
+                    { id: 'overview', label: 'Dashboard & Rules' },
                     { id: 'cheatsheet', label: 'Cheat Sheet Table' },
                     { id: 'exercises', label: 'Exercise Database' },
-                    { id: 'roadmap', label: 'Progression Roadmap' },
+                    { id: 'roadmap', label: 'Roadmap Plan' },
                     { id: 'calculator', label: 'RPE Formulas & Scale' },
                     { id: 'transformation', label: 'Nutrition & 12-Wk Tracker' },
                     { id: 'workout', label: 'Session History Logs' },
