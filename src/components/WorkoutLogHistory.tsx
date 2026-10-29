@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { History, Calendar, CheckCircle2, Trash2, FileText } from 'lucide-react';
+import { useSync } from '../context/SyncContext';
 
 interface LogEntry {
   date: string;
@@ -13,6 +14,7 @@ interface LogEntry {
 }
 
 export const WorkoutLogHistory: React.FC = () => {
+  const { clearWorkoutHistoryInCloud } = useSync();
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
   useEffect(() => {
@@ -42,6 +44,7 @@ export const WorkoutLogHistory: React.FC = () => {
     localStorage.removeItem('planche_workout_history');
     setLogs([]);
     setConfirmClear(false);
+    clearWorkoutHistoryInCloud();
     window.dispatchEvent(new Event('planche_history_updated'));
   };
 

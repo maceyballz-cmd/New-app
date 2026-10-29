@@ -1,0 +1,129 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net: default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation for UserProfile
+    function isValidUserProfile(data, userId) {
+      return data.userId == userId &&
+        data.email is string && data.email.size() <= 256 &&
+        (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 256));
+    }
+
+    // Validation for WorkoutLog
+    function isValidWorkoutLog(data, userId) {
+      return data.userId == userId &&
+        data.id is string && isValidId(data.id) &&
+        data.date is string && data.date.size() <= 64 &&
+        data.completedSets is number && data.completedSets >= 0 &&
+        data.totalSets is number && data.totalSets >= 0 &&
+        data.progressPercent is number &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 2048)) &&
+        (!('workoutName' in data) || (data.workoutName is string && data.workoutName.size() <= 256)) &&
+        (!('workoutIntensity' in data) || (data.workoutIntensity is string && data.workoutIntensity.size() <= 128)) &&
+        (!('targetRpe' in data) || (data.targetRpe is string && data.targetRpe.size() <= 64));
+    }
+
+    // Validation for CalendarLog
+    function isValidCalendarLog(data, userId) {
+      return data.userId == userId &&
+        data.id is string && isValidId(data.id) &&
+        data.date is string && data.date.size() <= 32 &&
+        (data.type == 'workout' || data.type == 'rest') &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 2048));
+    }
+
+    // Validation for TransformationWeek
+    function isValidTransformationWeek(data, userId) {
+      return data.userId == userId &&
+        data.weekId is string && isValidId(data.weekId) &&
+        data.weekNumber is number && data.weekNumber >= 0 && data.weekNumber <= 52 &&
+        (!('weight' in data) || (data.weight is string && data.weight.size() <= 32)) &&
+        (!('keySkillProgress' in data) || (data.keySkillProgress is string && data.keySkillProgress.size() <= 512));
+    }
+
+    // Validation for TransformationMeta
+    function isValidTransformationMeta(data, userId) {
+      return data.userId == userId &&
+        data.startDate is string && data.startDate.size() <= 32 &&
+        (!('unitMode' in data) || (data.unitMode is string && data.unitMode.size() <= 32));
+    }
+
+    // Validation for CustomWorkout
+    function isValidCustomWorkout(data, userId) {
+      return data.userId == userId &&
+        data.workoutType is string && data.workoutType.size() <= 64 &&
+        data.workoutJson is string && data.workoutJson.size() <= 50000;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUserProfile(incoming(), userId);
+      allow update: if isOwner(userId) && isValidId(userId) && isValidUserProfile(incoming(), userId) && incoming().userId == existing().userId;
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      match /workoutLogs/{logId} {
+        allow get: if isOwner(userId) && isValidId(logId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(logId) && isValidWorkoutLog(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(logId) && isValidWorkoutLog(incoming(), userId) && incoming().userId == existing().userId;
+        allow delete: if isOwner(userId) && isValidId(logId);
+      }
+
+      match /calendarLogs/{calendarId} {
+        allow get: if isOwner(userId) && isValidId(calendarId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(calendarId) && isValidCalendarLog(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(calendarId) && isValidCalendarLog(incoming(), userId) && incoming().userId == existing().userId;
+        allow delete: if isOwner(userId) && isValidId(calendarId);
+      }
+
+      match /transformationWeeks/{weekId} {
+        allow get: if isOwner(userId) && isValidId(weekId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(weekId) && isValidTransformationWeek(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(weekId) && isValidTransformationWeek(incoming(), userId) && incoming().userId == existing().userId;
+        allow delete: if isOwner(userId) && isValidId(weekId);
+      }
+
+      match /transformationMeta/{metaId} {
+        allow get: if isOwner(userId) && isValidId(metaId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(metaId) && isValidTransformationMeta(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(metaId) && isValidTransformationMeta(incoming(), userId) && incoming().userId == existing().userId;
+        allow delete: if isOwner(userId) && isValidId(metaId);
+      }
+
+      match /customWorkouts/{workoutTypeId} {
+        allow get: if isOwner(userId) && isValidId(workoutTypeId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(workoutTypeId) && isValidCustomWorkout(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(workoutTypeId) && isValidCustomWorkout(incoming(), userId) && incoming().userId == existing().userId;
+        allow delete: if isOwner(userId) && isValidId(workoutTypeId);
+      }
+    }
+  }
+}

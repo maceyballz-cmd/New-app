@@ -1,0 +1,147 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with synchronization metadata",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "displayName": { "type": "string", "maxLength": 256 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["userId", "email"]
+    },
+    "WorkoutLog": {
+      "title": "WorkoutLog",
+      "description": "Completed workout companion session log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 64 },
+        "completedSets": { "type": "number" },
+        "totalSets": { "type": "number" },
+        "progressPercent": { "type": "number" },
+        "targetRpe": { "type": "string", "maxLength": 64 },
+        "notes": { "type": "string", "maxLength": 2048 },
+        "workoutName": { "type": "string", "maxLength": 256 },
+        "workoutIntensity": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "date", "completedSets", "totalSets", "progressPercent"]
+    },
+    "CalendarLog": {
+      "title": "CalendarLog",
+      "description": "Calendar log for manual workout or rest day",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 32 },
+        "type": { "type": "string", "enum": ["workout", "rest"], "maxLength": 16 },
+        "workoutName": { "type": "string", "maxLength": 256 },
+        "workoutIntensity": { "type": "string", "maxLength": 128 },
+        "durationMinutes": { "type": "number" },
+        "completedSets": { "type": "number" },
+        "totalSets": { "type": "number" },
+        "targetRpe": { "type": "string", "maxLength": 64 },
+        "restType": { "type": "string", "maxLength": 64 },
+        "sleepQuality": { "type": "string", "maxLength": 64 },
+        "fatigueLevel": { "type": "string", "maxLength": 64 },
+        "notes": { "type": "string", "maxLength": 2048 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "date", "type"]
+    },
+    "TransformationWeek": {
+      "title": "TransformationWeek",
+      "description": "Weekly transformation measurement and body status",
+      "type": "object",
+      "properties": {
+        "weekId": { "type": "string", "maxLength": 64 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "weekNumber": { "type": "number" },
+        "weekLabel": { "type": "string", "maxLength": 64 },
+        "date": { "type": "string", "maxLength": 64 },
+        "weight": { "type": "string", "maxLength": 32 },
+        "chest": { "type": "string", "maxLength": 32 },
+        "rightArm": { "type": "string", "maxLength": 32 },
+        "leftArm": { "type": "string", "maxLength": 32 },
+        "navelAbove": { "type": "string", "maxLength": 32 },
+        "navelAt": { "type": "string", "maxLength": 32 },
+        "navelBelow": { "type": "string", "maxLength": 32 },
+        "hips": { "type": "string", "maxLength": 32 },
+        "rightThigh": { "type": "string", "maxLength": 32 },
+        "leftThigh": { "type": "string", "maxLength": 32 },
+        "height": { "type": "string", "maxLength": 32 },
+        "trainingDayCalories": { "type": "string", "maxLength": 64 },
+        "trainingDayMacros": { "type": "string", "maxLength": 64 },
+        "restDayCalories": { "type": "string", "maxLength": 64 },
+        "restDayMacros": { "type": "string", "maxLength": 64 },
+        "sleepScore": { "type": "string", "maxLength": 16 },
+        "stressScore": { "type": "string", "maxLength": 16 },
+        "hungerScore": { "type": "string", "maxLength": 16 },
+        "fatigueScore": { "type": "string", "maxLength": 16 },
+        "keySkillProgress": { "type": "string", "maxLength": 512 },
+        "photoFront": { "type": "string", "maxLength": 300000 },
+        "photoBack": { "type": "string", "maxLength": 300000 },
+        "photoLeftSide": { "type": "string", "maxLength": 300000 },
+        "photoRightSide": { "type": "string", "maxLength": 300000 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["weekId", "userId", "weekNumber"]
+    },
+    "TransformationMeta": {
+      "title": "TransformationMeta",
+      "description": "Transformation schedule start date and units",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "startDate": { "type": "string", "maxLength": 32 },
+        "unitMode": { "type": "string", "maxLength": 32 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["userId", "startDate"]
+    },
+    "CustomWorkout": {
+      "title": "CustomWorkout",
+      "description": "User custom workout variations saved for submax, max, and recovery",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "workoutType": { "type": "string", "maxLength": 64 },
+        "workoutJson": { "type": "string", "maxLength": 50000 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["userId", "workoutType", "workoutJson"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile and sync metadata"
+    },
+    "/users/{userId}/workoutLogs/{logId}": {
+      "schema": "WorkoutLog",
+      "description": "Logged workout sessions and completion history"
+    },
+    "/users/{userId}/calendarLogs/{calendarId}": {
+      "schema": "CalendarLog",
+      "description": "Calendar day log for workouts or rest days"
+    },
+    "/users/{userId}/transformationWeeks/{weekId}": {
+      "schema": "TransformationWeek",
+      "description": "12-week body transformation, measurements, and progress photos"
+    },
+    "/users/{userId}/transformationMeta/{metaId}": {
+      "schema": "TransformationMeta",
+      "description": "Transformation start date and settings"
+    },
+    "/users/{userId}/customWorkouts/{workoutTypeId}": {
+      "schema": "CustomWorkout",
+      "description": "Customized routine structure for submax, max, or recovery"
+    }
+  }
+}

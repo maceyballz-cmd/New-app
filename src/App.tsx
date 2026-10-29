@@ -16,6 +16,7 @@ import { WorkoutLogHistory } from './components/WorkoutLogHistory';
 import { WorkoutCalendarView } from './components/WorkoutCalendarView';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PrintDocument, PrintScope } from './components/PrintDocument';
+import { SyncProvider, useSync } from './context/SyncContext';
 import { sound } from './utils/sound';
 import {
   WorkoutType,
@@ -62,7 +63,8 @@ const TAB_INFO: Record<string, { title: string; desc: string }> = {
   },
 };
 
-export default function App() {
+function MainApp() {
+  const { saveCustomWorkoutToCloud } = useSync();
   const [activeTab, setActiveTab] = useState<
     'overview' | 'workout' | 'cheatsheet' | 'exercises' | 'roadmap' | 'calculator' | 'transformation'
   >('overview');
@@ -100,6 +102,7 @@ export default function App() {
   const handleSaveWorkout = (updatedWorkout: WorkoutProgram) => {
     saveWorkoutProgram(updatedWorkout);
     setCurrentWorkout(updatedWorkout);
+    saveCustomWorkoutToCloud(updatedWorkout);
   };
 
   // Reset to default prescribed template
@@ -426,5 +429,13 @@ export default function App() {
       {/* Offline Status Indicator */}
       <OfflineIndicator />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <SyncProvider>
+      <MainApp />
+    </SyncProvider>
   );
 }

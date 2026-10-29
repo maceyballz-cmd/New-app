@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useSync } from '../context/SyncContext';
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -60,6 +61,7 @@ export const formatDateToKey = (date: Date): string => {
 };
 
 export const WorkoutCalendarView: React.FC = () => {
+  const { saveCalendarLogToCloud, deleteCalendarLogFromCloud } = useSync();
   const today = useMemo(() => new Date(), []);
   const todayKey = useMemo(() => formatDateToKey(today), [today]);
 
@@ -141,9 +143,11 @@ export const WorkoutCalendarView: React.FC = () => {
     loadLogs();
     const handleUpdate = () => loadLogs();
     window.addEventListener('planche_history_updated', handleUpdate);
+    window.addEventListener('planche_calendar_updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
     return () => {
       window.removeEventListener('planche_history_updated', handleUpdate);
+      window.removeEventListener('planche_calendar_updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
     };
   }, []);
@@ -307,6 +311,7 @@ export const WorkoutCalendarView: React.FC = () => {
 
     const updated = { ...calendarLogs, [wDate]: newLog };
     saveCalendarLogs(updated);
+    saveCalendarLogToCloud(newLog);
 
     // Also sync with planche_workout_history so the history list right above reflects this manual workout!
     try {
@@ -361,6 +366,7 @@ export const WorkoutCalendarView: React.FC = () => {
 
     const updated = { ...calendarLogs, [rDate]: newLog };
     saveCalendarLogs(updated);
+    saveCalendarLogToCloud(newLog);
     setIsRestModalOpen(false);
     setSelectedDateKey(rDate);
   };
@@ -370,6 +376,7 @@ export const WorkoutCalendarView: React.FC = () => {
     const updated = { ...calendarLogs };
     delete updated[targetDate];
     saveCalendarLogs(updated);
+    deleteCalendarLogFromCloud(targetDate);
 
     // Also remove from workout history if it was a workout
     try {

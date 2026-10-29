@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSync } from '../context/SyncContext';
 import { WorkoutProgram, Exercise } from '../data/programData';
 import { sound } from '../utils/sound';
 import confetti from 'canvas-confetti';
@@ -38,6 +39,7 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
   initialExerciseId,
   onFinishWorkout,
 }) => {
+  const { saveWorkoutLogToCloud } = useSync();
   // All exercises flattened in sequential order from active workout
   const allExercises: Exercise[] = workout.phases.flatMap((p) => p.exercises);
 
@@ -300,7 +302,7 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
 
     // Save workout record in history
     const logs = JSON.parse(localStorage.getItem('planche_workout_history') || '[]');
-    logs.unshift({
+    const newEntry = {
       date: new Date().toISOString(),
       workoutName: workout.name,
       workoutIntensity: workout.intensityLabel,
@@ -309,9 +311,11 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
       progressPercent,
       targetRpe: workout.meta.targetRPE || 'RPE 5–7',
       notes: sessionNotes.trim(),
-    });
+    };
+    logs.unshift(newEntry);
     localStorage.setItem('planche_workout_history', JSON.stringify(logs.slice(0, 50)));
     localStorage.removeItem('planche_live_session_notes');
+    saveWorkoutLogToCloud(newEntry);
     window.dispatchEvent(new Event('planche_history_updated'));
 
     if (onFinishWorkout) onFinishWorkout();

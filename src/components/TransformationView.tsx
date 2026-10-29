@@ -1,4 +1,5 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { useSync } from '../context/SyncContext';
 import {
   Calendar,
   Scale,
@@ -32,6 +33,7 @@ import {
 } from '../data/transformationData';
 
 export const TransformationView: React.FC = () => {
+  const { saveTransformationToCloud } = useSync();
   const [data, setData] = useState<{
     startDate: string;
     entries: WeeklyProgressEntry[];
@@ -51,12 +53,30 @@ export const TransformationView: React.FC = () => {
   const [showClearModal, setShowClearModal] = useState<boolean>(false);
   const [showResetModal, setShowResetModal] = useState<boolean>(false);
 
+  // Listen for real-time remote updates from other open browser tabs or the installed desktop app
+  useEffect(() => {
+    const handleRemoteUpdate = () => {
+      setData(getStoredTransformationData());
+    };
+    window.addEventListener('planche_transformation_updated', handleRemoteUpdate);
+    return () => {
+      window.removeEventListener('planche_transformation_updated', handleRemoteUpdate);
+    };
+  }, []);
+
   // Trigger brief auto-save toast
   const triggerSaveNotification = (msg: string = 'Changes saved') => {
     setSaveToast(msg);
     setTimeout(() => {
       setSaveToast(null);
     }, 2000);
+  };
+
+  // Helper to persist locally and to cloud
+  const persistChanges = (newDate: string, updatedEntries: WeeklyProgressEntry[], toastMsg?: string) => {
+    saveStoredTransformationData(newDate, updatedEntries);
+    saveTransformationToCloud(newDate, updatedEntries);
+    if (toastMsg) triggerSaveNotification(toastMsg);
   };
 
   // Handle start date update
@@ -67,8 +87,7 @@ export const TransformationView: React.FC = () => {
     }));
     const nextData = { startDate: newDate, entries: updatedEntries };
     setData(nextData);
-    saveStoredTransformationData(newDate, updatedEntries);
-    triggerSaveNotification('Start date & weekly dates updated');
+    persistChanges(newDate, updatedEntries, 'Start date & weekly dates updated');
   };
 
   // Handle cell edits in spreadsheet
@@ -89,7 +108,7 @@ export const TransformationView: React.FC = () => {
 
     const nextData = { ...data, entries: updatedEntries };
     setData(nextData);
-    saveStoredTransformationData(data.startDate, updatedEntries);
+    persistChanges(data.startDate, updatedEntries);
   };
 
   // Open in-app Reset modal
@@ -101,8 +120,7 @@ export const TransformationView: React.FC = () => {
   const executeResetDefaults = () => {
     const defaults = generateDefaultProgressEntries(INITIAL_START_DATE);
     setData({ startDate: INITIAL_START_DATE, entries: defaults });
-    saveStoredTransformationData(INITIAL_START_DATE, defaults);
-    triggerSaveNotification('Reset to baseline template');
+    persistChanges(INITIAL_START_DATE, defaults, 'Reset to baseline template');
     setShowResetModal(false);
   };
 
@@ -116,8 +134,7 @@ export const TransformationView: React.FC = () => {
     const blankEntries = generateEmptyProgressEntries(data.startDate);
     const nextData = { startDate: data.startDate, entries: blankEntries };
     setData(nextData);
-    saveStoredTransformationData(data.startDate, blankEntries);
-    triggerSaveNotification('Form cleared. All measurements reset to blank.');
+    persistChanges(data.startDate, blankEntries, 'Form cleared. All measurements reset to blank.');
     setShowClearModal(false);
   };
 
@@ -178,23 +195,46 @@ export const TransformationView: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file || !pendingUploadAngle) return;
 
-    // Check size limit: 4MB max for browser storage
-    if (file.size > 4 * 1024 * 1024) {
-      alert('Please select an image under 4MB for fast in-browser preview.');
+    // Check size limit: 10MB max
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Please select an image under 10MB.');
       return;
     }
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      if (base64) {
+      const rawBase64 = event.target?.result as string;
+      if (!rawBase64) return;
+
+      // Compress and scale photo for fast sync and optimal cloud storage
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 800;
+        let width = img.width;
+        let height = img.height;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
+
         const updatedEntries = data.entries.map((entry) => {
           if (entry.weekNumber === selectedPhotoWeek) {
             return {
               ...entry,
               photos: {
                 ...entry.photos,
-                [pendingUploadAngle]: base64,
+                [pendingUploadAngle]: compressedBase64,
               },
             };
           }
@@ -203,9 +243,9 @@ export const TransformationView: React.FC = () => {
 
         const nextData = { ...data, entries: updatedEntries };
         setData(nextData);
-        saveStoredTransformationData(data.startDate, updatedEntries);
-        triggerSaveNotification(`Photo added for ${pendingUploadAngle}`);
-      }
+        persistChanges(data.startDate, updatedEntries, `Photo added for ${pendingUploadAngle}`);
+      };
+      img.src = rawBase64;
     };
     reader.readAsDataURL(file);
   };
@@ -225,8 +265,7 @@ export const TransformationView: React.FC = () => {
 
     const nextData = { ...data, entries: updatedEntries };
     setData(nextData);
-    saveStoredTransformationData(data.startDate, updatedEntries);
-    triggerSaveNotification(`Photo removed`);
+    persistChanges(data.startDate, updatedEntries, 'Photo removed');
   };
 
   // Helper stats
