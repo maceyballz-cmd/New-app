@@ -208,7 +208,10 @@ function MainApp() {
 
         {activeTab === 'roadmap' && (
           <div className="space-y-8">
-            <ProgressionRoadmap />
+            <ProgressionRoadmap
+              onNavigateTab={setActiveTab}
+              onStartSession={() => handleStartSession()}
+            />
           </div>
         )}
 
