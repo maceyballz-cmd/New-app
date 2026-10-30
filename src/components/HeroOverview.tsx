@@ -281,7 +281,7 @@ export const HeroOverview: React.FC<HeroOverviewProps> = ({
         {/* 3 Workout Buttons */}
         <div>
           <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-            Workout Intensity Protocol:
+            Select workout intensity protocol:
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {WORKOUT_TYPES.map((type) => {
