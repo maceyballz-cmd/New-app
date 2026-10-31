@@ -24,6 +24,9 @@ import {
   Square,
   ChevronRight,
   Info,
+  Edit3,
+  X,
+  Save,
 } from 'lucide-react';
 import { sound } from '../utils/sound';
 import confetti from 'canvas-confetti';
@@ -47,6 +50,28 @@ export interface RoadmapGoal {
   status: 'pending' | 'in_progress' | 'completed';
   notes?: string;
   isCustom?: boolean;
+}
+
+export interface NextStepDirective {
+  id: number;
+  title: string;
+  description: string;
+}
+
+export interface NextStepsHeaderData {
+  timelineTag: string;
+  protocolBadge: string;
+  title: string;
+  description: string;
+  metric1Label: string;
+  metric1Value: string;
+  metric2Label: string;
+  metric2Value: string;
+  metric3Label: string;
+  metric3Value: string;
+  metric4Label: string;
+  metric4Value: string;
+  isCustomized?: boolean;
 }
 
 const DEFAULT_ROADMAP_GOALS: RoadmapGoal[] = [
@@ -219,16 +244,86 @@ const DEFAULT_ROADMAP_GOALS: RoadmapGoal[] = [
   },
 ];
 
-const STORAGE_GOALS_KEY = 'planche_roadmap_goals_v2';
-const STORAGE_CURRENT_STEP_KEY = 'planche_roadmap_active_step';
+const DEFAULT_NEXT_STEP_DIRECTIVES: NextStepDirective[] = [
+  {
+    id: 1,
+    title: 'Strict Submaximal TUT Accumulation',
+    description:
+      'Never test max holds during your 50–60% submax sessions. Perform 4–5 sets of exactly 4–5 seconds of Frog Planche with raised legs, stopping with 2–3 seconds in reserve. This allows high weekly frequency without tendon micro-tears.',
+  },
+  {
+    id: 2,
+    title: 'Measurable Forward Lean Overload',
+    description:
+      'On Planche Leans and Dumbbell Leans, align your toes against a tile line or floor tape mark. Every 2 weeks, advance your forward lean by exactly 1 cm. Progressive overload in calisthenics is measured in forward centimeters, not guessed.',
+  },
+  {
+    id: 3,
+    title: 'Mandatory Rotator Cuff & Wrist Flossing',
+    description:
+      'Always execute the Phase 1 warm-up protocol: Infraspinatus towel-roll rotations, first-knuckle palm lifts, and straight-arm band protraction. These 5 minutes fortify your distal biceps tendon and eliminate anterior shoulder pinching.',
+  },
+  {
+    id: 4,
+    title: 'Graduation Test Day Every 3–4 Weeks',
+    description:
+      'Switch the protocol on the Dashboard to "100% Max Intensity" once every 3–4 weeks. Test an unbroken maximum hold. Once you register 8 continuous seconds with zero elbow micro-bend, graduate to Step 4 (Piked Straddle Planche).',
+  },
+];
+
+const STORAGE_GOALS_KEY = 'planche_roadmap_goals_v3';
+const STORAGE_CURRENT_STEP_KEY = 'planche_roadmap_active_step_v3';
+const STORAGE_STEPS_KEY = 'planche_roadmap_steps_v3';
+const STORAGE_DIRECTIVES_KEY = 'planche_roadmap_directives_v3';
+const STORAGE_NEXT_STEPS_HEADER_KEY = 'planche_roadmap_next_steps_header_v3';
+
+const getDefaultNextStepsHeader = (
+  stepNum: number,
+  stepName?: string,
+  stepDesc?: string
+): NextStepsHeaderData => ({
+  timelineTag: 'Immediate Focus (Next 2–4 Weeks)',
+  protocolBadge: `Step ${stepNum} Protocol`,
+  title: `${stepName || 'Frog Planche with Raised Legs'} Graduation Protocol`,
+  description:
+    stepDesc ||
+    'You are currently in the submaximal working zone. Your straight-arm goal is to build neurological motor recruitment while completely decoupling the legs from the triceps without connective tissue inflammation.',
+  metric1Label: 'Current Working Sets',
+  metric1Value: '4–5s Holds',
+  metric2Label: 'Target Graduation',
+  metric2Value: '8s Unbroken',
+  metric3Label: 'Neural Rest',
+  metric3Value: '180s (3 Min)',
+  metric4Label: 'Active Roadmap Step',
+  metric4Value: `Step ${stepNum}`,
+  isCustomized: false,
+});
 
 export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
   onNavigateTab,
   onStartSession,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<RoadmapSubTab>('path');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Active step in roadmap (defaults to Step 3)
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  // -------------------------------------------------------------
+  // 1. STEPS (PROGRESSION PATH) STATE
+  // -------------------------------------------------------------
+  const [steps, setSteps] = useState<ProgressionStep[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_STEPS_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return PROGRESSION_ROADMAP;
+  });
+
   const [activeStepId, setActiveStepId] = useState<number>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_CURRENT_STEP_KEY);
@@ -239,7 +334,160 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
     return 3;
   });
 
-  // Goals state with persistence
+  const saveSteps = (updated: ProgressionStep[]) => {
+    setSteps(updated);
+    try {
+      localStorage.setItem(STORAGE_STEPS_KEY, JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_CURRENT_STEP_KEY, String(activeStepId));
+    } catch {
+      // ignore
+    }
+  }, [activeStepId]);
+
+  // Step Editing Modals
+  const [editingStep, setEditingStep] = useState<ProgressionStep | null>(null);
+  const [isAddingStep, setIsAddingStep] = useState<boolean>(false);
+  const [stepFormState, setStepFormState] = useState<{
+    step: number;
+    name: string;
+    subtitle: string;
+    description: string;
+    criteria: string[];
+    tips: string;
+  }>({
+    step: 1,
+    name: '',
+    subtitle: '',
+    description: '',
+    criteria: [],
+    tips: '',
+  });
+  const [newCriterionInput, setNewCriterionInput] = useState<string>('');
+
+  const openEditStepModal = (step: ProgressionStep) => {
+    setEditingStep(step);
+    setIsAddingStep(false);
+    setStepFormState({
+      step: step.step,
+      name: step.name,
+      subtitle: step.subtitle,
+      description: step.description,
+      criteria: [...step.criteria],
+      tips: step.tips,
+    });
+    setNewCriterionInput('');
+  };
+
+  const openAddStepModal = () => {
+    setIsAddingStep(true);
+    setEditingStep(null);
+    const nextStepNum = steps.length > 0 ? Math.max(...steps.map((s) => s.step)) + 1 : 1;
+    setStepFormState({
+      step: nextStepNum,
+      name: '',
+      subtitle: '',
+      description: '',
+      criteria: ['Clean unbroken hold form', '100% locked elbow extension'],
+      tips: '',
+    });
+    setNewCriterionInput('');
+  };
+
+  const handleSaveStep = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stepFormState.name.trim()) return;
+
+    if (isAddingStep) {
+      const newStep: ProgressionStep = {
+        step: Number(stepFormState.step) || steps.length + 1,
+        name: stepFormState.name.trim(),
+        subtitle: stepFormState.subtitle.trim(),
+        description: stepFormState.description.trim(),
+        criteria: stepFormState.criteria.filter((c) => c.trim().length > 0),
+        tips: stepFormState.tips.trim(),
+      };
+      const updated = [...steps, newStep].sort((a, b) => a.step - b.step);
+      saveSteps(updated);
+      sound.playSuccessChime();
+      showToast(`Step "${newStep.name}" added successfully!`);
+    } else if (editingStep) {
+      const updated = steps.map((s) => {
+        if (s.step === editingStep.step) {
+          return {
+            ...s,
+            step: Number(stepFormState.step) || s.step,
+            name: stepFormState.name.trim(),
+            subtitle: stepFormState.subtitle.trim(),
+            description: stepFormState.description.trim(),
+            criteria: stepFormState.criteria.filter((c) => c.trim().length > 0),
+            tips: stepFormState.tips.trim(),
+          };
+        }
+        return s;
+      }).sort((a, b) => a.step - b.step);
+      saveSteps(updated);
+      sound.playSuccessChime();
+      showToast(`Step ${editingStep.step} updated!`);
+    }
+
+    setEditingStep(null);
+    setIsAddingStep(false);
+  };
+
+  const handleDeleteStep = (stepNumber: number) => {
+    if (steps.length <= 1) {
+      alert('You must have at least 1 step in the roadmap.');
+      return;
+    }
+    const updated = steps.filter((s) => s.step !== stepNumber);
+    saveSteps(updated);
+    if (activeStepId === stepNumber && updated.length > 0) {
+      setActiveStepId(updated[0].step);
+    }
+    showToast(`Step ${stepNumber} removed.`);
+  };
+
+  const handleResetSteps = () => {
+    saveSteps(PROGRESSION_ROADMAP);
+    setActiveStepId(3);
+    sound.playSuccessChime();
+    showToast('Roadmap progression steps restored to default curriculum!');
+  };
+
+  const handleAddCriterion = () => {
+    if (!newCriterionInput.trim()) return;
+    setStepFormState((prev) => ({
+      ...prev,
+      criteria: [...prev.criteria, newCriterionInput.trim()],
+    }));
+    setNewCriterionInput('');
+  };
+
+  const handleRemoveCriterion = (index: number) => {
+    setStepFormState((prev) => ({
+      ...prev,
+      criteria: prev.criteria.filter((_, i) => i !== index),
+    }));
+  };
+
+  const handleUpdateCriterion = (index: number, val: string) => {
+    setStepFormState((prev) => {
+      const next = [...prev.criteria];
+      next[index] = val;
+      return { ...prev, criteria: next };
+    });
+  };
+
+  // -------------------------------------------------------------
+  // 2. GOALS STATE & EDITING
+  // -------------------------------------------------------------
   const [goals, setGoals] = useState<RoadmapGoal[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_GOALS_KEY);
@@ -251,22 +499,25 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
   });
 
   const [goalCategoryFilter, setGoalCategoryFilter] = useState<string>('all');
-  const [showAddGoalModal, setShowAddGoalModal] = useState<boolean>(false);
-  const [newGoalTitle, setNewGoalTitle] = useState<string>('');
-  const [newGoalMetric, setNewGoalMetric] = useState<string>('');
-  const [newGoalTimeline, setNewGoalTimeline] = useState<string>('Upcoming Milestone');
-  const [newGoalCategory, setNewGoalCategory] = useState<'isometric' | 'hspu' | 'tendon' | 'mobility' | 'custom'>('custom');
+  const [editingGoal, setEditingGoal] = useState<RoadmapGoal | null>(null);
+  const [isAddingGoal, setIsAddingGoal] = useState<boolean>(false);
 
-  // Save active step preference
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_CURRENT_STEP_KEY, String(activeStepId));
-    } catch {
-      // ignore
-    }
-  }, [activeStepId]);
+  const [goalFormState, setGoalFormState] = useState<{
+    title: string;
+    targetMetric: string;
+    timeline: string;
+    category: 'isometric' | 'hspu' | 'tendon' | 'mobility' | 'custom';
+    status: 'pending' | 'in_progress' | 'completed';
+    notes: string;
+  }>({
+    title: '',
+    targetMetric: '',
+    timeline: '',
+    category: 'custom',
+    status: 'in_progress',
+    notes: '',
+  });
 
-  // Save goals
   const saveGoals = (updated: RoadmapGoal[]) => {
     setGoals(updated);
     try {
@@ -276,7 +527,87 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
     }
   };
 
-  // Toggle goal status: pending -> in_progress -> completed -> pending
+  const openEditGoalModal = (goal: RoadmapGoal) => {
+    setEditingGoal(goal);
+    setIsAddingGoal(false);
+    setGoalFormState({
+      title: goal.title,
+      targetMetric: goal.targetMetric,
+      timeline: goal.timeline,
+      category: goal.category,
+      status: goal.status,
+      notes: goal.notes || '',
+    });
+  };
+
+  const openAddGoalModal = () => {
+    setIsAddingGoal(true);
+    setEditingGoal(null);
+    setGoalFormState({
+      title: '',
+      targetMetric: '',
+      timeline: 'Upcoming 30–60 Days',
+      category: 'custom',
+      status: 'in_progress',
+      notes: '',
+    });
+  };
+
+  const handleSaveGoal = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!goalFormState.title.trim()) return;
+
+    const categoryLabel =
+      goalFormState.category === 'isometric'
+        ? 'Straight-Arm Isometric'
+        : goalFormState.category === 'hspu'
+        ? 'Bent-Arm Pressing (HSPU)'
+        : goalFormState.category === 'tendon'
+        ? 'Tendon & Joint Resilience'
+        : goalFormState.category === 'mobility'
+        ? 'Active Mobility & Compression'
+        : 'Custom Goal';
+
+    if (isAddingGoal) {
+      const newGoal: RoadmapGoal = {
+        id: `goal-${Date.now()}`,
+        category: goalFormState.category,
+        categoryLabel,
+        title: goalFormState.title.trim(),
+        targetMetric: goalFormState.targetMetric.trim() || 'Custom Milestone Target',
+        timeline: goalFormState.timeline.trim() || 'Next 30–60 Days',
+        status: goalFormState.status,
+        notes: goalFormState.notes.trim(),
+        isCustom: true,
+      };
+      saveGoals([newGoal, ...goals]);
+      sound.playSuccessChime();
+      showToast(`Goal "${newGoal.title}" added!`);
+    } else if (editingGoal) {
+      const updated = goals.map((g) => {
+        if (g.id === editingGoal.id) {
+          return {
+            ...g,
+            category: goalFormState.category,
+            categoryLabel,
+            title: goalFormState.title.trim(),
+            targetMetric: goalFormState.targetMetric.trim(),
+            timeline: goalFormState.timeline.trim(),
+            status: goalFormState.status,
+            notes: goalFormState.notes.trim(),
+          };
+        }
+        return g;
+      });
+      saveGoals(updated);
+      sound.playSuccessChime();
+      showToast(`Goal "${goalFormState.title}" updated!`);
+    }
+
+    setEditingGoal(null);
+    setIsAddingGoal(false);
+  };
+
   const toggleGoalStatus = (goalId: string) => {
     const nextGoals = goals.map((g) => {
       if (g.id !== goalId) return g;
@@ -303,43 +634,15 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
     saveGoals(nextGoals);
   };
 
-  const handleAddCustomGoal = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newGoalTitle.trim()) return;
-
-    const newGoal: RoadmapGoal = {
-      id: `custom-goal-${Date.now()}`,
-      category: newGoalCategory,
-      categoryLabel:
-        newGoalCategory === 'isometric'
-          ? 'Straight-Arm Isometric'
-          : newGoalCategory === 'hspu'
-          ? 'Bent-Arm Pressing (HSPU)'
-          : newGoalCategory === 'tendon'
-          ? 'Tendon & Joint Resilience'
-          : newGoalCategory === 'mobility'
-          ? 'Active Mobility & Compression'
-          : 'Custom Goal',
-      title: newGoalTitle.trim(),
-      targetMetric: newGoalMetric.trim() || 'Custom Milestone Target',
-      timeline: newGoalTimeline.trim() || 'Next 30–60 Days',
-      status: 'in_progress',
-      isCustom: true,
-    };
-
-    saveGoals([newGoal, ...goals]);
-    sound.playSuccessChime();
-    setNewGoalTitle('');
-    setNewGoalMetric('');
-    setShowAddGoalModal(false);
-  };
-
   const handleDeleteGoal = (goalId: string) => {
     saveGoals(goals.filter((g) => g.id !== goalId));
+    showToast('Goal removed.');
   };
 
   const handleResetGoals = () => {
     saveGoals(DEFAULT_ROADMAP_GOALS);
+    sound.playSuccessChime();
+    showToast('Milestone goals restored to defaults!');
   };
 
   // Filtered goals
@@ -350,14 +653,150 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
     return goals.filter((g) => g.category === goalCategoryFilter);
   }, [goals, goalCategoryFilter]);
 
-  // Goal metrics
   const totalGoals = goals.length;
   const completedGoals = goals.filter((g) => g.status === 'completed').length;
   const inProgressGoals = goals.filter((g) => g.status === 'in_progress').length;
   const goalProgressPercent = totalGoals > 0 ? Math.round((completedGoals / totalGoals) * 100) : 0;
 
+  // -------------------------------------------------------------
+  // 3. NEXT STEPS DIRECTIVES (EDITABLE)
+  // -------------------------------------------------------------
+  const [directives, setDirectives] = useState<NextStepDirective[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_DIRECTIVES_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return DEFAULT_NEXT_STEP_DIRECTIVES;
+  });
+
+  const [editingDirective, setEditingDirective] = useState<NextStepDirective | null>(null);
+  const [directiveFormState, setDirectiveFormState] = useState<{ title: string; description: string }>({
+    title: '',
+    description: '',
+  });
+
+  const saveDirectives = (updated: NextStepDirective[]) => {
+    setDirectives(updated);
+    try {
+      localStorage.setItem(STORAGE_DIRECTIVES_KEY, JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+  };
+
+  const openEditDirectiveModal = (d: NextStepDirective) => {
+    setEditingDirective(d);
+    setDirectiveFormState({
+      title: d.title,
+      description: d.description,
+    });
+  };
+
+  const handleSaveDirective = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDirective || !directiveFormState.title.trim()) return;
+
+    const updated = directives.map((d) =>
+      d.id === editingDirective.id
+        ? { ...d, title: directiveFormState.title.trim(), description: directiveFormState.description.trim() }
+        : d
+    );
+    saveDirectives(updated);
+    sound.playSuccessChime();
+    showToast(`Action Step #${editingDirective.id} updated!`);
+    setEditingDirective(null);
+  };
+
+  const handleResetDirectives = () => {
+    saveDirectives(DEFAULT_NEXT_STEP_DIRECTIVES);
+    sound.playSuccessChime();
+    showToast('Tactical action steps restored to defaults!');
+  };
+
+  // -------------------------------------------------------------
+  // 4. NEXT STEPS HEADER (EDITABLE)
+  // -------------------------------------------------------------
+  const [customNextStepsHeader, setCustomNextStepsHeader] = useState<NextStepsHeaderData | null>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_NEXT_STEPS_HEADER_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return null;
+  });
+
+  const activeStepObj = steps.find((s) => s.step === activeStepId);
+  const defaultNextStepsHeader = useMemo(
+    () => getDefaultNextStepsHeader(activeStepId, activeStepObj?.name, activeStepObj?.description),
+    [activeStepId, activeStepObj]
+  );
+
+  const currentNextStepsHeader: NextStepsHeaderData = customNextStepsHeader || defaultNextStepsHeader;
+
+  const [isEditingNextStepsHeader, setIsEditingNextStepsHeader] = useState<boolean>(false);
+  const [nextStepsHeaderForm, setNextStepsHeaderForm] = useState<NextStepsHeaderData>(defaultNextStepsHeader);
+
+  const openEditNextStepsHeaderModal = () => {
+    setNextStepsHeaderForm({ ...currentNextStepsHeader });
+    setIsEditingNextStepsHeader(true);
+  };
+
+  const handleSaveNextStepsHeader = (e: React.FormEvent) => {
+    e.preventDefault();
+    const updated: NextStepsHeaderData = {
+      ...nextStepsHeaderForm,
+      timelineTag: nextStepsHeaderForm.timelineTag.trim() || 'Immediate Focus (Next 2–4 Weeks)',
+      protocolBadge: nextStepsHeaderForm.protocolBadge.trim() || `Step ${activeStepId} Protocol`,
+      title:
+        nextStepsHeaderForm.title.trim() ||
+        `${activeStepObj?.name || 'Frog Planche with Raised Legs'} Graduation Protocol`,
+      description: nextStepsHeaderForm.description.trim(),
+      metric1Label: nextStepsHeaderForm.metric1Label.trim() || 'Current Working Sets',
+      metric1Value: nextStepsHeaderForm.metric1Value.trim() || '4–5s Holds',
+      metric2Label: nextStepsHeaderForm.metric2Label.trim() || 'Target Graduation',
+      metric2Value: nextStepsHeaderForm.metric2Value.trim() || '8s Unbroken',
+      metric3Label: nextStepsHeaderForm.metric3Label.trim() || 'Neural Rest',
+      metric3Value: nextStepsHeaderForm.metric3Value.trim() || '180s (3 Min)',
+      metric4Label: nextStepsHeaderForm.metric4Label.trim() || 'Active Roadmap Step',
+      metric4Value: nextStepsHeaderForm.metric4Value.trim() || `Step ${activeStepId}`,
+      isCustomized: true,
+    };
+    setCustomNextStepsHeader(updated);
+    try {
+      localStorage.setItem(STORAGE_NEXT_STEPS_HEADER_KEY, JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+    sound.playSuccessChime();
+    showToast('Next Steps header updated successfully!');
+    setIsEditingNextStepsHeader(false);
+  };
+
+  const handleResetNextStepsHeader = () => {
+    setCustomNextStepsHeader(null);
+    try {
+      localStorage.removeItem(STORAGE_NEXT_STEPS_HEADER_KEY);
+    } catch {
+      // ignore
+    }
+    sound.playSuccessChime();
+    showToast('Next Steps header restored to step defaults!');
+    setIsEditingNextStepsHeader(false);
+  };
+
   return (
     <div className="space-y-6">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-lg border border-slate-700 flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
+          <Check className="w-4 h-4 text-emerald-400" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
       {/* ============================================================
           TOP HEADER & SUB-TAB NAVIGATION
           ============================================================ */}
@@ -372,7 +811,7 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
               Roadmap Plan & Strategic Path
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-2xl">
-              Systematic 6-step progression ladder, measurable milestone goals, and immediate tactical next steps for Straddle Planche & HSPU mastery.
+              Systematic progression ladder, measurable milestone goals, and immediate tactical next steps for Straddle Planche & HSPU mastery — all fully customizable and editable.
             </p>
           </div>
 
@@ -418,7 +857,7 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
                 activeSubTab === 'path' ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-600'
               }`}
             >
-              6 Steps
+              {steps.length} Steps
             </span>
           </button>
 
@@ -458,18 +897,18 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
                 activeSubTab === 'next-steps' ? 'bg-white/25 text-white' : 'bg-emerald-100 text-emerald-800'
               }`}
             >
-              Step 3 Focus
+              {directives.length} Directives
             </span>
           </button>
         </div>
       </div>
 
       {/* ============================================================
-          TAB 1: PROGRESSION PATH
+          TAB 1: PROGRESSION PATH (EDITABLE STEPS)
           ============================================================ */}
       {activeSubTab === 'path' && (
         <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200 shadow-xs space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
             <div>
               <div className="flex items-center gap-2">
                 <Target className="w-5 h-5 text-blue-600" />
@@ -478,18 +917,48 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
                 </h2>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Each progression increases the forward shoulder torque moment arm. Click any step to set your active working target.
+                Each progression increases the forward shoulder torque moment arm. Click any step to set your target, or edit names, criteria, and cues.
               </p>
             </div>
 
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-600 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg">
-              <span>Active Target:</span>
-              <strong className="text-blue-700">Step {activeStepId}</strong>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={openAddStepModal}
+                className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Step</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResetSteps}
+                title="Reset all progression steps back to original curriculum"
+                className="p-2 text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer border border-slate-200"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
             </div>
           </div>
 
+          {/* Active Target Banner */}
+          <div className="flex items-center justify-between p-3.5 bg-blue-50/60 border border-blue-200 rounded-xl text-xs">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse"></span>
+              <span className="text-slate-700">Current Working Target:</span>
+              <strong className="text-blue-900 font-bold">
+                Step {activeStepId}: {steps.find((s) => s.step === activeStepId)?.name || 'Custom Target'}
+              </strong>
+            </div>
+            <span className="text-[11px] text-slate-500 hidden sm:inline">
+              Click "Set as Current Target" on any step below
+            </span>
+          </div>
+
+          {/* Steps List */}
           <div className="space-y-5">
-            {PROGRESSION_ROADMAP.map((step) => {
+            {steps.map((step) => {
               const isCurrent = step.step === activeStepId;
               const isPassed = step.step < activeStepId;
 
@@ -534,29 +1003,52 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-slate-500">{step.subtitle}</div>
+                        {step.subtitle && <div className="text-xs text-slate-500">{step.subtitle}</div>}
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 self-start sm:self-auto">
+                    {/* Step Action Controls */}
+                    <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
                       {!isCurrent && (
                         <button
                           type="button"
                           onClick={() => {
                             setActiveStepId(step.step);
                             sound.playSuccessChime();
+                            showToast(`Active target set to Step ${step.step}: ${step.name}`);
                           }}
                           className="px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:text-blue-700 bg-white hover:bg-blue-50 rounded-lg border border-slate-200 hover:border-blue-300 transition-colors cursor-pointer"
                         >
-                          Set as Current Target
+                          Set as Target
                         </button>
                       )}
+
+                      <button
+                        type="button"
+                        onClick={() => openEditStepModal(step)}
+                        className="p-1.5 text-slate-600 hover:text-blue-600 bg-white hover:bg-blue-50 border border-slate-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1 text-xs font-semibold"
+                        title="Edit step details and graduation criteria"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Edit</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteStep(step.step)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 bg-white hover:bg-rose-50 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+                        title="Delete this step"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
 
-                  <p className="text-xs sm:text-sm text-slate-700 my-2.5 leading-relaxed pl-11">
-                    {step.description}
-                  </p>
+                  {step.description && (
+                    <p className="text-xs sm:text-sm text-slate-700 my-2.5 leading-relaxed pl-11">
+                      {step.description}
+                    </p>
+                  )}
 
                   {/* Criteria & Coaching Cue */}
                   <div className="pl-11 mt-3 pt-3 border-t border-slate-200/80 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
@@ -565,14 +1057,18 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
                         <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
                         <span>Graduation Test Criteria:</span>
                       </span>
-                      <ul className="space-y-1.5">
-                        {step.criteria.map((c, i) => (
-                          <li key={i} className="flex items-start gap-1.5 text-slate-600">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                            <span>{c}</span>
-                          </li>
-                        ))}
-                      </ul>
+                      {step.criteria.length === 0 ? (
+                        <p className="text-slate-400 italic">No criteria specified yet. Click Edit to add checkpoints.</p>
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {step.criteria.map((c, i) => (
+                            <li key={i} className="flex items-start gap-1.5 text-slate-600">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                              <span>{c}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
 
                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 flex flex-col justify-between">
@@ -581,7 +1077,9 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
                           <Info className="w-3.5 h-3.5 text-amber-600" />
                           <span>Coaching Point:</span>
                         </span>
-                        <p className="text-slate-600 italic leading-relaxed">{step.tips}</p>
+                        <p className="text-slate-600 italic leading-relaxed">
+                          {step.tips || 'Focus on strict elbow lockout and serratus protraction.'}
+                        </p>
                       </div>
 
                       <div className="mt-2 pt-2 border-t border-slate-200/60 text-[11px] text-slate-500 font-medium">
@@ -597,7 +1095,178 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
       )}
 
       {/* ============================================================
-          TAB 2: GOALS (Milestones & Interactive Checklist)
+          MODAL: ADD OR EDIT PROGRESSION STEP
+          ============================================================ */}
+      {(editingStep || isAddingStep) && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in"
+          onClick={() => {
+            setEditingStep(null);
+            setIsAddingStep(false);
+          }}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 my-8 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Target className="w-5 h-5 text-blue-600" />
+                <h3 className="text-base font-bold text-slate-900">
+                  {isAddingStep ? 'Add New Progression Step' : `Edit Step ${editingStep?.step}: ${editingStep?.name}`}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingStep(null);
+                  setIsAddingStep(false);
+                }}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveStep} className="space-y-4 mt-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Step #</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="99"
+                    required
+                    value={stepFormState.step}
+                    onChange={(e) =>
+                      setStepFormState((prev) => ({ ...prev, step: parseInt(e.target.value, 10) || 1 }))
+                    }
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+                  />
+                </div>
+
+                <div className="sm:col-span-3">
+                  <label className="block font-semibold text-slate-700 mb-1">Step Name *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Piked Straddle Planche"
+                    value={stepFormState.name}
+                    onChange={(e) => setStepFormState((prev) => ({ ...prev, name: e.target.value }))}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Subtitle / Posture Focus</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Wide straddle, floating hips level with shoulders"
+                  value={stepFormState.subtitle}
+                  onChange={(e) => setStepFormState((prev) => ({ ...prev, subtitle: e.target.value }))}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Biomechanical Description</label>
+                <textarea
+                  rows={2}
+                  placeholder="Explain torque increase, limb position, and straight-arm demands..."
+                  value={stepFormState.description}
+                  onChange={(e) => setStepFormState((prev) => ({ ...prev, description: e.target.value }))}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Graduation Criteria List Builder */}
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Graduation Criteria (Checkpoints to advance)
+                </label>
+                <div className="space-y-2 mb-2">
+                  {stepFormState.criteria.map((c, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={c}
+                        onChange={(e) => handleUpdateCriterion(i, e.target.value)}
+                        className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCriterion(i)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded-md hover:bg-rose-50"
+                        title="Remove criterion"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Add a new graduation requirement..."
+                    value={newCriterionInput}
+                    onChange={(e) => setNewCriterionInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddCriterion();
+                      }
+                    }}
+                    className="flex-1 bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddCriterion}
+                    className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors"
+                  >
+                    + Add
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Coaching Point & Form Cues</label>
+                <textarea
+                  rows={2}
+                  placeholder="Key form cue for safe tendon adaptation..."
+                  value={stepFormState.tips}
+                  onChange={(e) => setStepFormState((prev) => ({ ...prev, tips: e.target.value }))}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingStep(null);
+                    setIsAddingStep(false);
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-xs flex items-center gap-1.5"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isAddingStep ? 'Create Progression Step' : 'Save Step Changes'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          TAB 2: GOALS (EDITABLE MILESTONES)
           ============================================================ */}
       {activeSubTab === 'goals' && (
         <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200 shadow-xs space-y-6">
@@ -611,14 +1280,14 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
                 </h2>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Track your key straight-arm isometric, HSPU overhead pressing, and tendon strength checkpoints. Click any goal to update status.
+                Track and customize your straight-arm holds, HSPU pressing, and tendon strength goals. Click any goal checkbox to toggle progress, or click Edit to customize title, target metric, or timeline.
               </p>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
-                onClick={() => setShowAddGoalModal(true)}
+                onClick={openAddGoalModal}
                 className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -689,92 +1358,6 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
             ))}
           </div>
 
-          {/* Add Goal Modal / Form */}
-          {showAddGoalModal && (
-            <div className="bg-blue-50/60 border border-blue-200 rounded-2xl p-5 sm:p-6 space-y-4 animate-in fade-in">
-              <div className="flex items-center justify-between pb-3 border-b border-blue-100">
-                <div className="flex items-center gap-2">
-                  <Plus className="w-4 h-4 text-blue-600" />
-                  <h3 className="text-sm font-bold text-slate-900">Add Custom Milestone Goal</h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowAddGoalModal(false)}
-                  className="text-xs text-slate-500 hover:text-slate-800"
-                >
-                  Cancel
-                </button>
-              </div>
-
-              <form onSubmit={handleAddCustomGoal} className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div className="sm:col-span-2">
-                  <label className="block font-semibold text-slate-700 mb-1">Goal Title *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. 10s Straddle Planche Lean on Parallettes"
-                    value={newGoalTitle}
-                    onChange={(e) => setNewGoalTitle(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Target Metric *</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 10s hold, zero elbow micro-bend"
-                    value={newGoalMetric}
-                    onChange={(e) => setNewGoalMetric(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Category</label>
-                  <select
-                    value={newGoalCategory}
-                    onChange={(e) => setNewGoalCategory(e.target.value as any)}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                  >
-                    <option value="isometric">Straight-Arm Isometric</option>
-                    <option value="hspu">Bent-Arm Pressing (HSPU)</option>
-                    <option value="tendon">Tendon & Joint Resilience</option>
-                    <option value="mobility">Active Mobility</option>
-                    <option value="custom">Custom Milestone</option>
-                  </select>
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="block font-semibold text-slate-700 mb-1">Target Timeline</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Next 4 Weeks / Month 3"
-                    value={newGoalTimeline}
-                    onChange={(e) => setNewGoalTimeline(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div className="sm:col-span-2 flex items-center justify-end gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddGoalModal(false)}
-                    className="px-3.5 py-2 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs"
-                  >
-                    Save Milestone Goal
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-
           {/* Goals List */}
           <div className="space-y-3">
             {filteredGoals.map((g) => {
@@ -784,24 +1367,20 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
               return (
                 <div
                   key={g.id}
-                  onClick={() => toggleGoalStatus(g.id)}
-                  className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 group select-none ${
+                  className={`p-4 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 group select-none ${
                     isCompleted
-                      ? 'bg-emerald-50/50 border-emerald-200 hover:bg-emerald-50'
+                      ? 'bg-emerald-50/50 border-emerald-200'
                       : isInProgress
-                      ? 'bg-blue-50/40 border-blue-200 hover:bg-blue-50/70 ring-1 ring-blue-500/20'
+                      ? 'bg-blue-50/40 border-blue-200 ring-1 ring-blue-500/20'
                       : 'bg-white border-slate-200 hover:border-slate-300'
                   }`}
                 >
                   <div className="flex items-start gap-3">
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleGoalStatus(g.id);
-                      }}
+                      onClick={() => toggleGoalStatus(g.id)}
                       className="mt-0.5 text-slate-400 hover:text-blue-600 cursor-pointer shrink-0 transition-colors"
-                      title="Click to toggle status"
+                      title="Click to cycle status (Pending -> In Training -> Achieved)"
                     >
                       {isCompleted ? (
                         <CheckSquare className="w-5 h-5 text-emerald-600" />
@@ -849,16 +1428,20 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
                     </div>
                   </div>
 
-                  {/* Status Badge & Actions */}
+                  {/* Actions & Status */}
                   <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 pl-8 sm:pl-0">
-                    <span
-                      className={`text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 ${
+                    {/* Status Badge (Click to toggle) */}
+                    <button
+                      type="button"
+                      onClick={() => toggleGoalStatus(g.id)}
+                      className={`text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-transform active:scale-95 ${
                         isCompleted
-                          ? 'bg-emerald-600 text-white shadow-2xs'
+                          ? 'bg-emerald-600 text-white shadow-2xs hover:bg-emerald-700'
                           : isInProgress
-                          ? 'bg-blue-600 text-white shadow-2xs'
-                          : 'bg-slate-100 text-slate-600 border border-slate-200'
+                          ? 'bg-blue-600 text-white shadow-2xs hover:bg-blue-700'
+                          : 'bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200'
                       }`}
+                      title="Click to advance status"
                     >
                       {isCompleted ? (
                         <>
@@ -873,21 +1456,28 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
                       ) : (
                         <span>Upcoming</span>
                       )}
-                    </span>
+                    </button>
 
-                    {g.isCustom && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteGoal(g.id);
-                        }}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors"
-                        title="Delete custom goal"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+                    {/* Edit Goal Button */}
+                    <button
+                      type="button"
+                      onClick={() => openEditGoalModal(g)}
+                      className="p-1.5 text-slate-600 hover:text-blue-600 bg-white hover:bg-blue-50 border border-slate-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1 text-xs font-semibold"
+                      title="Edit this goal"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Edit</span>
+                    </button>
+
+                    {/* Delete Goal Button */}
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteGoal(g.id)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 bg-white hover:bg-rose-50 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+                      title="Delete goal"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
               );
@@ -897,45 +1487,218 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
       )}
 
       {/* ============================================================
-          TAB 3: NEXT STEPS (Action Plan & Tactics)
+          MODAL: ADD OR EDIT GOAL
+          ============================================================ */}
+      {(editingGoal || isAddingGoal) && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in"
+          onClick={() => {
+            setEditingGoal(null);
+            setIsAddingGoal(false);
+          }}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 my-8 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Award className="w-5 h-5 text-blue-600" />
+                <h3 className="text-base font-bold text-slate-900">
+                  {isAddingGoal ? 'Add Milestone Goal' : 'Edit Milestone Goal'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingGoal(null);
+                  setIsAddingGoal(false);
+                }}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveGoal} className="space-y-4 mt-4 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Goal Title *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. 10s Frog Planche Hold"
+                  value={goalFormState.title}
+                  onChange={(e) => setGoalFormState((prev) => ({ ...prev, title: e.target.value }))}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Category</label>
+                  <select
+                    value={goalFormState.category}
+                    onChange={(e) => setGoalFormState((prev) => ({ ...prev, category: e.target.value as any }))}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer font-medium"
+                  >
+                    <option value="isometric">Straight-Arm Isometric</option>
+                    <option value="hspu">Bent-Arm Pressing (HSPU)</option>
+                    <option value="tendon">Tendon & Joint Resilience</option>
+                    <option value="mobility">Active Mobility</option>
+                    <option value="custom">Custom Goal</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Current Status</label>
+                  <select
+                    value={goalFormState.status}
+                    onChange={(e) => setGoalFormState((prev) => ({ ...prev, status: e.target.value as any }))}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer font-medium"
+                  >
+                    <option value="pending">Upcoming / Not Started</option>
+                    <option value="in_progress">In Training (Active)</option>
+                    <option value="completed">Achieved / Completed</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Target Metric *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. 8s unbroken hold, zero elbow micro-bend"
+                  value={goalFormState.targetMetric}
+                  onChange={(e) => setGoalFormState((prev) => ({ ...prev, targetMetric: e.target.value }))}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Target Timeline</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Level 3 · Month 3–5"
+                  value={goalFormState.timeline}
+                  onChange={(e) => setGoalFormState((prev) => ({ ...prev, timeline: e.target.value }))}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Notes & Biomechanical Focus</label>
+                <textarea
+                  rows={2}
+                  placeholder="Additional cues, prerequisites, or equipment..."
+                  value={goalFormState.notes}
+                  onChange={(e) => setGoalFormState((prev) => ({ ...prev, notes: e.target.value }))}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingGoal(null);
+                    setIsAddingGoal(false);
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-xs flex items-center gap-1.5"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isAddingGoal ? 'Add Goal' : 'Save Goal Changes'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          TAB 3: NEXT STEPS (ACTION PLAN & EDITABLE DIRECTIVES)
           ============================================================ */}
       {activeSubTab === 'next-steps' && (
         <div className="space-y-6">
           {/* Working Zone Banner */}
           <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-2xl p-6 sm:p-8 shadow-sm border border-slate-800 relative overflow-hidden">
             <div className="relative z-10">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-[11px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30">
-                  Immediate Focus (Next 2–4 Weeks)
-                </span>
-                <span className="text-[11px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">
-                  Step 3 Protocol
-                </span>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                    {currentNextStepsHeader.timelineTag}
+                  </span>
+                  <span className="text-[11px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">
+                    {currentNextStepsHeader.protocolBadge}
+                  </span>
+                  {customNextStepsHeader && (
+                    <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-400/30">
+                      Customized
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {customNextStepsHeader && (
+                    <button
+                      type="button"
+                      onClick={handleResetNextStepsHeader}
+                      title="Reset header back to step defaults"
+                      className="px-2.5 py-1 text-xs text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-700 rounded-lg transition-colors border border-slate-700 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Reset Defaults</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={openEditNextStepsHeaderModal}
+                    title="Edit Next Steps Protocol Header"
+                    className="px-3 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Edit Header</span>
+                  </button>
+                </div>
               </div>
 
               <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white mb-2">
-                Frog Planche with Raised Legs Graduation Protocol
+                {currentNextStepsHeader.title}
               </h2>
               <p className="text-slate-300 text-xs sm:text-sm max-w-3xl leading-relaxed">
-                You are currently in the submaximal working zone. Your straight-arm goal is to build neurological motor recruitment while completely decoupling the legs from the triceps without connective tissue inflammation.
+                {currentNextStepsHeader.description}
               </p>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-slate-700/80 text-xs">
                 <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
-                  <span className="text-slate-400 text-[10px] uppercase font-bold block">Current Working Sets</span>
-                  <strong className="text-white text-sm">4–5s Holds</strong>
+                  <span className="text-slate-400 text-[10px] uppercase font-bold block">
+                    {currentNextStepsHeader.metric1Label}
+                  </span>
+                  <strong className="text-white text-sm">{currentNextStepsHeader.metric1Value}</strong>
                 </div>
                 <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
-                  <span className="text-slate-400 text-[10px] uppercase font-bold block">Target Graduation</span>
-                  <strong className="text-emerald-400 text-sm">8s Unbroken</strong>
+                  <span className="text-slate-400 text-[10px] uppercase font-bold block">
+                    {currentNextStepsHeader.metric2Label}
+                  </span>
+                  <strong className="text-emerald-400 text-sm">{currentNextStepsHeader.metric2Value}</strong>
                 </div>
                 <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
-                  <span className="text-slate-400 text-[10px] uppercase font-bold block">Neural Rest</span>
-                  <strong className="text-white text-sm">180s (3 Min)</strong>
+                  <span className="text-slate-400 text-[10px] uppercase font-bold block">
+                    {currentNextStepsHeader.metric3Label}
+                  </span>
+                  <strong className="text-white text-sm">{currentNextStepsHeader.metric3Value}</strong>
                 </div>
                 <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
-                  <span className="text-slate-400 text-[10px] uppercase font-bold block">Next Ladder Step</span>
-                  <strong className="text-blue-400 text-sm">Step 4 (Piked Straddle)</strong>
+                  <span className="text-slate-400 text-[10px] uppercase font-bold block">
+                    {currentNextStepsHeader.metric4Label}
+                  </span>
+                  <strong className="text-blue-400 text-sm">{currentNextStepsHeader.metric4Value}</strong>
                 </div>
               </div>
             </div>
@@ -943,78 +1706,59 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
 
           {/* Actionable Next Steps Breakdown */}
           <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200 shadow-xs space-y-6">
-            <div className="pb-4 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <Compass className="w-5 h-5 text-blue-600" />
-                <h3 className="text-lg font-bold text-slate-900 tracking-tight">
-                  Tactical Action Plan: What To Do In Every Session
-                </h3>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Compass className="w-5 h-5 text-blue-600" />
+                  <h3 className="text-lg font-bold text-slate-900 tracking-tight">
+                    Tactical Action Plan: What To Do In Every Session
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Execute these primary directives to safely bridge the gap to your next progression milestone. Click Edit on any card to tailor instructions.
+                </p>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Execute these four primary directives to safely bridge the gap to Step 4 (Piked Straddle Planche).
-              </p>
+
+              <button
+                type="button"
+                onClick={handleResetDirectives}
+                title="Reset directives back to defaults"
+                className="p-2 text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer border border-slate-200 self-start sm:self-auto"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Step 1 */}
-              <div className="p-5 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
-                    1
-                  </div>
-                  <h4 className="text-sm font-bold text-slate-900">
-                    Strict Submaximal TUT Accumulation
-                  </h4>
-                </div>
-                <p className="text-xs text-slate-600 leading-relaxed pl-8">
-                  Never test max holds during your 50–60% submax sessions. Perform 4–5 sets of exactly 4–5 seconds of Frog Planche with raised legs, stopping with 2–3 seconds in reserve. This allows high weekly frequency without tendon micro-tears.
-                </p>
-              </div>
+              {directives.map((d) => (
+                <div
+                  key={d.id}
+                  className="p-5 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2 relative group hover:border-slate-300 transition-all"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-lg bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
+                        {d.id}
+                      </div>
+                      <h4 className="text-sm font-bold text-slate-900">{d.title}</h4>
+                    </div>
 
-              {/* Step 2 */}
-              <div className="p-5 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
-                    2
+                    <button
+                      type="button"
+                      onClick={() => openEditDirectiveModal(d)}
+                      className="p-1.5 text-slate-500 hover:text-blue-600 bg-white hover:bg-blue-50 border border-slate-200 rounded-lg transition-colors cursor-pointer text-xs font-semibold flex items-center gap-1"
+                      title="Edit this tactical action step"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Edit</span>
+                    </button>
                   </div>
-                  <h4 className="text-sm font-bold text-slate-900">
-                    Measurable Forward Lean Overload
-                  </h4>
-                </div>
-                <p className="text-xs text-slate-600 leading-relaxed pl-8">
-                  On Planche Leans and Dumbbell Leans, align your toes against a tile line or floor tape mark. Every 2 weeks, advance your forward lean by exactly 1 cm. Progressive overload in calisthenics is measured in forward centimeters, not guessed.
-                </p>
-              </div>
 
-              {/* Step 3 */}
-              <div className="p-5 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
-                    3
-                  </div>
-                  <h4 className="text-sm font-bold text-slate-900">
-                    Mandatory Rotator Cuff & Wrist Flossing
-                  </h4>
+                  <p className="text-xs text-slate-600 leading-relaxed pl-8">
+                    {d.description}
+                  </p>
                 </div>
-                <p className="text-xs text-slate-600 leading-relaxed pl-8">
-                  Always execute the Phase 1 warm-up protocol: Infraspinatus towel-roll rotations, first-knuckle palm lifts, and straight-arm band protraction. These 5 minutes fortify your distal biceps tendon and eliminate anterior shoulder pinching.
-                </p>
-              </div>
-
-              {/* Step 4 */}
-              <div className="p-5 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
-                    4
-                  </div>
-                  <h4 className="text-sm font-bold text-slate-900">
-                    Graduation Test Day Every 3–4 Weeks
-                  </h4>
-                </div>
-                <p className="text-xs text-slate-600 leading-relaxed pl-8">
-                  Switch the protocol on the Dashboard to "100% Max Intensity" once every 3–4 weeks. Test an unbroken maximum hold. Once you register 8 continuous seconds with zero elbow micro-bend, graduate to Step 4 (Piked Straddle Planche).
-                </p>
-              </div>
+              ))}
             </div>
 
             {/* Troubleshooting Diagnostic Matrix */}
@@ -1076,6 +1820,300 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          MODAL: EDIT DIRECTIVE
+          ============================================================ */}
+      {editingDirective && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in"
+          onClick={() => setEditingDirective(null)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Compass className="w-5 h-5 text-blue-600" />
+                <h3 className="text-base font-bold text-slate-900">
+                  Edit Action Directive #{editingDirective.id}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingDirective(null)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveDirective} className="space-y-4 mt-4 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Directive Title *</label>
+                <input
+                  type="text"
+                  required
+                  value={directiveFormState.title}
+                  onChange={(e) => setDirectiveFormState((prev) => ({ ...prev, title: e.target.value }))}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Directive Instructions *</label>
+                <textarea
+                  rows={4}
+                  required
+                  value={directiveFormState.description}
+                  onChange={(e) => setDirectiveFormState((prev) => ({ ...prev, description: e.target.value }))}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 leading-relaxed"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingDirective(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-xs flex items-center gap-1.5"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Save Directive</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          MODAL: EDIT NEXT STEPS HEADER BANNER
+          ============================================================ */}
+      {isEditingNextStepsHeader && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in"
+          onClick={() => setIsEditingNextStepsHeader(false)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-2xl w-full p-6 sm:p-7 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-blue-600" />
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Edit Next Steps Protocol Header
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Customize the working zone timeline tags, title, description, and key performance metrics.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditingNextStepsHeader(false)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveNextStepsHeader} className="space-y-4 mt-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Timeline Tag *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Immediate Focus (Next 2–4 Weeks)"
+                    value={nextStepsHeaderForm.timelineTag}
+                    onChange={(e) =>
+                      setNextStepsHeaderForm((prev) => ({ ...prev, timelineTag: e.target.value }))
+                    }
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Protocol Badge *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Step 3 Protocol"
+                    value={nextStepsHeaderForm.protocolBadge}
+                    onChange={(e) =>
+                      setNextStepsHeaderForm((prev) => ({ ...prev, protocolBadge: e.target.value }))
+                    }
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Protocol Header Title *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Frog Planche with Raised Legs Graduation Protocol"
+                  value={nextStepsHeaderForm.title}
+                  onChange={(e) =>
+                    setNextStepsHeaderForm((prev) => ({ ...prev, title: e.target.value }))
+                  }
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Strategic Description *</label>
+                <textarea
+                  rows={3}
+                  required
+                  placeholder="Biomechanical working zone objectives, straight-arm goals, connective tissue cues..."
+                  value={nextStepsHeaderForm.description}
+                  onChange={(e) =>
+                    setNextStepsHeaderForm((prev) => ({ ...prev, description: e.target.value }))
+                  }
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 leading-relaxed"
+                />
+              </div>
+
+              {/* 4 Metric Cards */}
+              <div className="pt-3 border-t border-slate-100">
+                <span className="block font-bold text-slate-800 mb-2">Key Metric Cards (4 Slots)</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Metric 1 */}
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Metric 1</span>
+                    <input
+                      type="text"
+                      placeholder="Label (e.g. Current Working Sets)"
+                      value={nextStepsHeaderForm.metric1Label}
+                      onChange={(e) =>
+                        setNextStepsHeaderForm((prev) => ({ ...prev, metric1Label: e.target.value }))
+                      }
+                      className="w-full bg-white border border-slate-300 rounded-md px-2.5 py-1.5 text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Value (e.g. 4–5s Holds)"
+                      value={nextStepsHeaderForm.metric1Value}
+                      onChange={(e) =>
+                        setNextStepsHeaderForm((prev) => ({ ...prev, metric1Value: e.target.value }))
+                      }
+                      className="w-full bg-white border border-slate-300 rounded-md px-2.5 py-1.5 text-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+                    />
+                  </div>
+
+                  {/* Metric 2 */}
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Metric 2</span>
+                    <input
+                      type="text"
+                      placeholder="Label (e.g. Target Graduation)"
+                      value={nextStepsHeaderForm.metric2Label}
+                      onChange={(e) =>
+                        setNextStepsHeaderForm((prev) => ({ ...prev, metric2Label: e.target.value }))
+                      }
+                      className="w-full bg-white border border-slate-300 rounded-md px-2.5 py-1.5 text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Value (e.g. 8s Unbroken)"
+                      value={nextStepsHeaderForm.metric2Value}
+                      onChange={(e) =>
+                        setNextStepsHeaderForm((prev) => ({ ...prev, metric2Value: e.target.value }))
+                      }
+                      className="w-full bg-white border border-slate-300 rounded-md px-2.5 py-1.5 text-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+                    />
+                  </div>
+
+                  {/* Metric 3 */}
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Metric 3</span>
+                    <input
+                      type="text"
+                      placeholder="Label (e.g. Neural Rest)"
+                      value={nextStepsHeaderForm.metric3Label}
+                      onChange={(e) =>
+                        setNextStepsHeaderForm((prev) => ({ ...prev, metric3Label: e.target.value }))
+                      }
+                      className="w-full bg-white border border-slate-300 rounded-md px-2.5 py-1.5 text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Value (e.g. 180s (3 Min))"
+                      value={nextStepsHeaderForm.metric3Value}
+                      onChange={(e) =>
+                        setNextStepsHeaderForm((prev) => ({ ...prev, metric3Value: e.target.value }))
+                      }
+                      className="w-full bg-white border border-slate-300 rounded-md px-2.5 py-1.5 text-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+                    />
+                  </div>
+
+                  {/* Metric 4 */}
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Metric 4</span>
+                    <input
+                      type="text"
+                      placeholder="Label (e.g. Active Roadmap Step)"
+                      value={nextStepsHeaderForm.metric4Label}
+                      onChange={(e) =>
+                        setNextStepsHeaderForm((prev) => ({ ...prev, metric4Label: e.target.value }))
+                      }
+                      className="w-full bg-white border border-slate-300 rounded-md px-2.5 py-1.5 text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Value (e.g. Step 3)"
+                      value={nextStepsHeaderForm.metric4Value}
+                      onChange={(e) =>
+                        setNextStepsHeaderForm((prev) => ({ ...prev, metric4Value: e.target.value }))
+                      }
+                      className="w-full bg-white border border-slate-300 rounded-md px-2.5 py-1.5 text-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={handleResetNextStepsHeader}
+                  className="px-3 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset to Step Defaults</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingNextStepsHeader(false)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-xs flex items-center gap-1.5"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Save Header Changes</span>
+                  </button>
+                </div>
+              </div>
+            </form>
           </div>
         </div>
       )}
