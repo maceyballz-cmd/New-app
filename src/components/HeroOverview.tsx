@@ -295,6 +295,10 @@ export const HeroOverview: React.FC<HeroOverviewProps> = ({
                 activeClasses = isSelected
                   ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-500/30'
                   : 'bg-blue-50/60 text-blue-900 hover:bg-blue-100/70 border border-blue-200/60';
+              } else if (type.id === 'gtg') {
+                activeClasses = isSelected
+                  ? 'bg-violet-600 text-white shadow-sm ring-2 ring-violet-500/30'
+                  : 'bg-violet-50/60 text-violet-900 hover:bg-violet-100/70 border border-violet-200/60';
               } else {
                 activeClasses = isSelected
                   ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-500/30'
@@ -314,6 +318,7 @@ export const HeroOverview: React.FC<HeroOverviewProps> = ({
                 >
                   {type.id === 'max' && <Zap className="w-3.5 h-3.5" />}
                   {type.id === 'submax' && <Activity className="w-3.5 h-3.5" />}
+                  {type.id === 'gtg' && <Flame className="w-3.5 h-3.5" />}
                   {type.id === 'recovery' && <Sparkles className="w-3.5 h-3.5" />}
                   <span>{type.label}</span>
                 </button>

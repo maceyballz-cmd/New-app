@@ -967,6 +967,7 @@ export const WorkoutCalendarView: React.FC = () => {
                   >
                     <option value="Submaximal 50–60%">Submaximal 50–60%</option>
                     <option value="100% Maximum Intensity">100% Maximum Intensity</option>
+                    <option value="GTG 20%-30%">GTG 20%-30% (5-Min Circuit)</option>
                     <option value="Technique & Deload (40-50%)">Technique & Deload (40-50%)</option>
                   </select>
                 </div>

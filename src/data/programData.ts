@@ -1,4 +1,4 @@
-export type WorkoutType = 'max' | 'submax' | 'recovery';
+export type WorkoutType = 'max' | 'submax' | 'recovery' | 'gtg';
 
 export interface Exercise {
   id: string;
@@ -74,6 +74,12 @@ export const WORKOUT_TYPES: { id: WorkoutType; label: string; sublabel: string; 
     label: '50 - 60 % Submax intensity',
     sublabel: 'Submaximal Adaptation Baseline',
     color: 'blue',
+  },
+  {
+    id: 'gtg',
+    label: 'GTG 20%-30%',
+    sublabel: '5-Minute Circuit · 5 Supersets',
+    color: 'violet',
   },
   {
     id: 'recovery',
@@ -863,6 +869,151 @@ export const DEFAULT_RECOVERY_WORKOUT: WorkoutProgram = {
   ],
 };
 
+// 4. GTG 20%-30% WORKOUT (5-Minute Superset Circuit)
+export const DEFAULT_GTG_WORKOUT: WorkoutProgram = {
+  id: 'gtg',
+  name: 'GTG 20%-30% (5-Minute Circuit)',
+  intensityLabel: 'GTG 20%-30%',
+  meta: {
+    title: 'GTG 20%-30% 5-Minute Circuit Protocol',
+    subtitle: 'Grease the Groove (GTG) 5-Minute Neural Superset Circuit · 5 Exercises',
+    goal: 'Neurological Motor Patterning & Frequent Sub-Fatigue Grooving',
+    timeline: 'Daily Micro-Sessions (Ongoing)',
+    sessionDuration: '5 Minutes',
+    targetRPE: 'RPE 2–3 (20%–30% GTG)',
+    frequency: '1–4 Micro-Sessions / Day (Spaced 2–4 Hours)',
+    philosophy:
+      'Grease the Groove (GTG) at 20%–30% sub-fatigue intensity conditions the central nervous system without causing muscular micro-trauma or tendon inflammation. By chaining 5 complementary calisthenics exercises in a continuous 5-minute superset circuit, you groove the motor pathways for straight-arm planche holds, vertical pressing alignment, and scapular protraction while remaining completely fresh.',
+  },
+  rules: [
+    {
+      title: 'Continuous Superset Flow',
+      rule: 'Execute the 5 exercises back-to-back as a seamless superset circuit with only 10–15s transition between movements. Complete 2 brisk rounds in 5 minutes.',
+    },
+    {
+      title: 'Zero Fatigue / Never Grind',
+      rule: 'Every repetition and hold must feel crisp, light, and effortless. Always terminate each set leaving 70%–80% in reserve. Never test maxes in GTG.',
+    },
+    {
+      title: 'Laser Form & 100% Lockout',
+      rule: 'Low intensity is not sloppy execution. Lock straight arms completely, protract scapulae actively, and maintain strict posterior pelvic tilt on every second.',
+    },
+    {
+      title: 'Anytime Micro-Dosing',
+      rule: 'This 5-minute circuit can be performed anytime during the day (e.g., between work tasks or as a morning primer) without interfering with your main workout sessions.',
+    },
+  ],
+  phases: [
+    {
+      id: 1,
+      title: 'Phase 1: 5-Minute GTG Superset Circuit (5 Exercises)',
+      subtitle: 'Continuous non-fatigue superset circuit · 2 quick rounds · 5 minutes total',
+      badge: '5-Min Circuit',
+      durationEstimate: '5 Mins',
+      description:
+        'Execute all 5 exercises consecutively as a continuous superset circuit. Perform 2 rapid rounds with 10–15s transitions between exercises. Stay strictly at 20%–30% effort with zero shaking or strain.',
+      exercises: [
+        {
+          id: 'gtg-e1',
+          phaseId: 1,
+          name: 'Frog Planche / Low-Lever Lean Hold',
+          badge: 'Superset (A1/5) · 2 Sets × 3–4 Sec Hold | Rest: 15s',
+          details: 'Submaximal straight-arm isometric groove. Knees elevated wide or light forward lean on parallettes.',
+          cues: '100% straight locked elbows, active serratus doming, stop while feeling completely fresh.',
+          targetArea: 'Straight-Arm Planche Neural Groove & Serratus Lockout',
+          defaultSets: 2,
+          defaultRepsOrSec: '3–4 sec hold',
+          holdSeconds: 4,
+          isHold: true,
+          restSeconds: 15,
+          rpe: 'RPE 2–3',
+          coachingPoints: [
+            'Zero elbow micro-bend',
+            'Leave at least 5–6 seconds in reserve',
+            'Focus on clean scapular protraction',
+          ],
+        },
+        {
+          id: 'gtg-e2',
+          phaseId: 1,
+          name: 'Elevated Pike / Wall Handstand Alignment Hold',
+          badge: 'Superset (A2/5) · 2 Sets × 5–6 Sec Hold | Rest: 15s',
+          details: 'Overhead vertical pressing groove. Feet elevated on box or against wall in stacked line.',
+          cues: 'Push ground away vigorously, shrug shoulders to ears, lock ribcage and hollow core.',
+          targetArea: 'Vertical Overhead Pressing Pathway & Shoulder Elevation',
+          defaultSets: 2,
+          defaultRepsOrSec: '5–6 sec hold',
+          holdSeconds: 6,
+          isHold: true,
+          restSeconds: 15,
+          rpe: 'RPE 2–3',
+          coachingPoints: [
+            'Stack wrists, shoulders, and hips',
+            'Active shoulder elevation at the top',
+            'Smooth nasal breathing',
+          ],
+        },
+        {
+          id: 'gtg-e3',
+          phaseId: 1,
+          name: 'Scapular Push-Up Protraction Pulses',
+          badge: 'Superset (A3/5) · 2 Sets × 6–8 Reps | Rest: 15s',
+          details: 'Straight-arm scapular isolation on floor or push-up bars.',
+          cues: 'Keep elbows completely straight. Glide scapulae through retraction and push up into maximal dome.',
+          targetArea: 'Serratus Anterior & Scapular Gliding Mechanics',
+          defaultSets: 2,
+          defaultRepsOrSec: '6–8 reps',
+          restSeconds: 15,
+          rpe: 'RPE 2–3',
+          coachingPoints: [
+            'Movement occurs exclusively at the shoulder blades',
+            'Pause for 1 second in peak protraction',
+            'No sagging in lower spine',
+          ],
+        },
+        {
+          id: 'gtg-e4',
+          phaseId: 1,
+          name: 'Hollow Body Straddle Compression Pulse',
+          badge: 'Superset (A4/5) · 2 Sets × 8–10 Sec Hold | Rest: 15s',
+          details: 'Supine compression hold. Lower back pressed into floor, legs spread in wide straddle.',
+          cues: 'Posterior pelvic tilt (PPT), squeeze quads, reach fingers forward between straddle legs.',
+          targetArea: 'Transverse Abdominis, Hip Flexor Compression & PPT Lock',
+          defaultSets: 2,
+          defaultRepsOrSec: '8–10 sec hold',
+          holdSeconds: 10,
+          isHold: true,
+          restSeconds: 15,
+          rpe: 'RPE 2–3',
+          coachingPoints: [
+            'Zero air gap under lower back',
+            'Point toes and lock knees straight',
+            'Effortless sub-fatigue compression',
+          ],
+        },
+        {
+          id: 'gtg-e5',
+          phaseId: 1,
+          name: 'First-Knuckle Planche Weight Shifts',
+          badge: 'Superset (A5/5) · 2 Sets × 5–6 Reps | Rest: 30s',
+          details: 'Quadruped or plank position, gentle forward lean past wrist crease with active knuckle press.',
+          cues: 'Claw floor with fingertips, gentle lean forward and return without joint discomfort.',
+          targetArea: 'Distal Biceps Tendons & Wrist Sheath Resilience',
+          defaultSets: 2,
+          defaultRepsOrSec: '5–6 reps',
+          restSeconds: 30,
+          rpe: 'RPE 2–3',
+          coachingPoints: [
+            'Elbow pits rotated forward',
+            'Synovial fluid pumping without fatigue',
+            'Completes 1 full round of the superset circuit',
+          ],
+        },
+      ],
+    },
+  ],
+};
+
 // STORAGE HELPERS
 const STORAGE_KEY_PREFIX = 'planche_custom_workout_';
 
@@ -905,6 +1056,8 @@ function getInitialDefault(type: WorkoutType): WorkoutProgram {
       return JSON.parse(JSON.stringify(DEFAULT_MAX_WORKOUT));
     case 'recovery':
       return JSON.parse(JSON.stringify(DEFAULT_RECOVERY_WORKOUT));
+    case 'gtg':
+      return JSON.parse(JSON.stringify(DEFAULT_GTG_WORKOUT));
     case 'submax':
     default:
       return JSON.parse(JSON.stringify(DEFAULT_SUBMAX_WORKOUT));

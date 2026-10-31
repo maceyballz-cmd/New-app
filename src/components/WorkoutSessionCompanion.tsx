@@ -423,13 +423,15 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
               </div>
               <div className="text-center sm:text-left">
                 <div className="text-xs font-semibold text-sky-400 uppercase tracking-wider">
-                  Neural Recovery Rest Period
+                  {workout.id === 'gtg' ? 'Superset Circuit Transition' : 'Neural Recovery Rest Period'}
                 </div>
                 <h3 className="text-sm font-medium text-slate-200 mt-0.5">
                   Resting for {currentExercise.name}
                 </h3>
                 <p className="text-xs text-slate-400 mt-1">
-                  Full 3-min rest allows complete ATP-PC resynthesis for locked-arm power.
+                  {workout.id === 'gtg'
+                    ? 'Brief transition rest allows immediate rotation into the next superset movement without accumulating fatigue.'
+                    : 'Full 3-min rest allows complete ATP-PC resynthesis for locked-arm power.'}
                 </p>
               </div>
             </div>
