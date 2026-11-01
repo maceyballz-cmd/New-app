@@ -174,7 +174,7 @@ function MainApp() {
             {/* History Section & Activity Calendar (Dashboard Only) */}
             <div className="mt-12 pt-8 border-t border-slate-200 space-y-8">
               <WorkoutLogHistory />
-              <WorkoutCalendarView />
+              <WorkoutCalendarView currentWorkout={currentWorkout} />
             </div>
           </div>
         )}

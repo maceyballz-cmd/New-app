@@ -18,7 +18,9 @@ import {
   Activity,
   Award,
   Zap,
+  RotateCcw,
 } from 'lucide-react';
+import { WorkoutProgram, WorkoutType, getWorkoutProgram } from '../data/programData';
 
 export type DayLogType = 'workout' | 'rest';
 
@@ -49,6 +51,10 @@ export interface CalendarDayLog {
   createdAt?: string;
 }
 
+export interface WorkoutCalendarViewProps {
+  currentWorkout?: WorkoutProgram;
+}
+
 const STORAGE_CALENDAR_KEY = 'planche_calendar_logs';
 const STORAGE_WORKOUT_HISTORY_KEY = 'planche_workout_history';
 
@@ -60,10 +66,46 @@ export const formatDateToKey = (date: Date): string => {
   return `${y}-${m}-${d}`;
 };
 
-export const WorkoutCalendarView: React.FC = () => {
+// Helper to extract a clean exercises string for a workout program from the program page
+export const getExercisesStringFromWorkout = (workout: WorkoutProgram): string => {
+  const exNames = workout.phases.flatMap((p) => p.exercises.map((e) => e.name));
+  return exNames.join(', ');
+};
+
+// Helper to extract total sets count for a workout program
+export const getTotalSetsFromWorkout = (workout: WorkoutProgram): number => {
+  return workout.phases.flatMap((p) => p.exercises).reduce((acc, e) => acc + (e.defaultSets || 1), 0);
+};
+
+// Helper to extract approximate duration in minutes from a workout program
+export const getDurationMinsFromWorkout = (workout: WorkoutProgram): number => {
+  if (workout.id === 'gtg') return 5;
+  const match = workout.meta.sessionDuration.match(/(\d+)/);
+  return match ? Number(match[1]) : 45;
+};
+
+export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ currentWorkout }) => {
   const { saveCalendarLogToCloud, deleteCalendarLogFromCloud } = useSync();
   const today = useMemo(() => new Date(), []);
   const todayKey = useMemo(() => formatDateToKey(today), [today]);
+
+  // Available programs from the program page (including user custom edits)
+  const availablePrograms = useMemo(() => {
+    const list: WorkoutProgram[] = [];
+    if (currentWorkout) {
+      list.push(currentWorkout);
+    }
+    const standardIds: WorkoutType[] = ['submax', 'max', 'gtg', 'recovery'];
+    standardIds.forEach((type) => {
+      const p = getWorkoutProgram(type);
+      if (!list.some((existing) => existing.id === p.id)) {
+        list.push(p);
+      }
+    });
+    return list;
+  }, [currentWorkout]);
+
+  const defaultProg = currentWorkout || availablePrograms[0] || getWorkoutProgram('submax');
 
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
   const [selectedDateKey, setSelectedDateKey] = useState<string>(todayKey);
@@ -75,18 +117,32 @@ export const WorkoutCalendarView: React.FC = () => {
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
   const [deleteConfirmDate, setDeleteConfirmDate] = useState<string | null>(null);
 
-  // Form states for Workout Modal
+  // Form states for Workout Modal - pre-filled with the active routine and exercises from the program page
   const [wDate, setWDate] = useState<string>(todayKey);
-  const [wName, setWName] = useState<string>('Planche Submaximal Protocol (50-60%)');
-  const [wIntensity, setWIntensity] = useState<string>('Submaximal 50–60%');
-  const [wDuration, setWDuration] = useState<number>(45);
-  const [wCompletedSets, setWCompletedSets] = useState<number>(18);
-  const [wTotalSets, setWTotalSets] = useState<number>(18);
-  const [wExercises, setWExercises] = useState<string>(
-    'Tuck Planche Holds, Pseudo Planche Push-Ups, Dumbbell Planche Leans, Reverse Hyperextensions'
-  );
-  const [wRpe, setWRpe] = useState<string>('RPE 6-7 (2-3 RIR)');
+  const [wName, setWName] = useState<string>(() => defaultProg.name);
+  const [wIntensity, setWIntensity] = useState<string>(() => defaultProg.intensityLabel);
+  const [wDuration, setWDuration] = useState<number>(() => getDurationMinsFromWorkout(defaultProg));
+  const [wCompletedSets, setWCompletedSets] = useState<number>(() => getTotalSetsFromWorkout(defaultProg));
+  const [wTotalSets, setWTotalSets] = useState<number>(() => getTotalSetsFromWorkout(defaultProg));
+  const [wExercises, setWExercises] = useState<string>(() => getExercisesStringFromWorkout(defaultProg));
+  const [wRpe, setWRpe] = useState<string>(() => defaultProg.meta.targetRPE || 'RPE 6-7 (2-3 RIR)');
   const [wNotes, setWNotes] = useState<string>('');
+
+  // Keep defaults updated with active program page workout whenever it changes and modal is closed
+  useEffect(() => {
+    if (!isWorkoutModalOpen && currentWorkout) {
+      setWName(currentWorkout.name);
+      setWIntensity(currentWorkout.intensityLabel);
+      setWDuration(getDurationMinsFromWorkout(currentWorkout));
+      const totalSets = getTotalSetsFromWorkout(currentWorkout);
+      setWTotalSets(totalSets);
+      setWCompletedSets(totalSets);
+      setWExercises(getExercisesStringFromWorkout(currentWorkout));
+      if (currentWorkout.meta?.targetRPE) {
+        setWRpe(currentWorkout.meta.targetRPE);
+      }
+    }
+  }, [currentWorkout, isWorkoutModalOpen]);
 
   // Form states for Rest Modal
   const [rDate, setRDate] = useState<string>(todayKey);
@@ -254,17 +310,50 @@ export const WorkoutCalendarView: React.FC = () => {
       setWRpe(editLog.workoutDetails.targetRpe);
       setWNotes(editLog.workoutDetails.notes || '');
     } else {
+      // Automatically pre-fill with the routine and exercises currently on the program page!
+      const activeProg = currentWorkout || availablePrograms[0] || getWorkoutProgram('submax');
       setEditingLogId(null);
-      setWName('Planche Submaximal Protocol (50-60%)');
-      setWIntensity('Submaximal 50–60%');
-      setWDuration(45);
-      setWCompletedSets(18);
-      setWTotalSets(18);
-      setWExercises('Tuck Planche Holds, Pseudo Planche Push-Ups, Dumbbell Planche Leans, Reverse Hyperextensions');
-      setWRpe('RPE 6-7 (2-3 RIR)');
+      setWName(activeProg.name);
+      setWIntensity(activeProg.intensityLabel);
+      setWDuration(getDurationMinsFromWorkout(activeProg));
+      const totalSets = getTotalSetsFromWorkout(activeProg);
+      setWTotalSets(totalSets);
+      setWCompletedSets(totalSets);
+      setWExercises(getExercisesStringFromWorkout(activeProg));
+      setWRpe(activeProg.meta?.targetRPE || 'RPE 6-7 (2-3 RIR)');
       setWNotes('');
     }
     setIsWorkoutModalOpen(true);
+  };
+
+  // Find currently matched workout program based on wName
+  const matchedProgram = useMemo(() => {
+    return availablePrograms.find(
+      (p) =>
+        p.name.trim().toLowerCase() === wName.trim().toLowerCase() ||
+        p.id.toLowerCase() === wName.trim().toLowerCase()
+    );
+  }, [availablePrograms, wName]);
+
+  // Handler when routine / workout title is selected: automatically updates exercises and metrics
+  const handleRoutineTitleChange = (newTitle: string) => {
+    setWName(newTitle);
+    const matched = availablePrograms.find(
+      (p) =>
+        p.name.trim().toLowerCase() === newTitle.trim().toLowerCase() ||
+        p.id.toLowerCase() === newTitle.trim().toLowerCase()
+    );
+    if (matched) {
+      setWExercises(getExercisesStringFromWorkout(matched));
+      setWIntensity(matched.intensityLabel);
+      setWDuration(getDurationMinsFromWorkout(matched));
+      const totalSets = getTotalSetsFromWorkout(matched);
+      setWTotalSets(totalSets);
+      setWCompletedSets(totalSets);
+      if (matched.meta?.targetRPE) {
+        setWRpe(matched.meta.targetRPE);
+      }
+    }
   };
 
   // Open Log Rest Day modal
@@ -434,9 +523,15 @@ export const WorkoutCalendarView: React.FC = () => {
             type="button"
             onClick={() => openWorkoutModal(selectedDateKey)}
             className="px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
+            title={`Log ${currentWorkout?.name || 'Workout'} (${currentWorkout ? currentWorkout.phases.flatMap((p) => p.exercises).length : 0} exercises)`}
           >
             <Dumbbell className="w-3.5 h-3.5" />
             <span>+ Log Workout</span>
+            {currentWorkout && (
+              <span className="hidden sm:inline-block text-[10px] bg-blue-500/40 px-1.5 py-0.5 rounded-md font-medium text-blue-100 border border-blue-400/30">
+                {currentWorkout.intensityLabel}
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -933,24 +1028,25 @@ export const WorkoutCalendarView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Routine / Workout Title</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-bold text-slate-700">Routine / Workout Title</label>
+                  <span className="text-[10px] text-blue-600 font-semibold flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200/60">
+                    <Sparkles className="w-3 h-3" /> Auto-syncs exercises
+                  </span>
+                </div>
                 <select
                   value={wName}
-                  onChange={(e) => setWName(e.target.value)}
+                  onChange={(e) => handleRoutineTitleChange(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
                 >
-                  <option value="Planche Submaximal Protocol (50-60%)">
-                    Planche Submaximal Protocol (50-60%)
-                  </option>
-                  <option value="Planche 100% Max Hold Test">
-                    Planche 100% Max Hold Test
-                  </option>
-                  <option value="Planche Press & Bent Arm Strength">
-                    Planche Press & Bent Arm Strength
-                  </option>
-                  <option value="Conditioning & Core Protocol">
-                    Conditioning & Core Protocol
-                  </option>
+                  {availablePrograms.map((prog) => {
+                    const isCurrentOnPage = currentWorkout && currentWorkout.id === prog.id;
+                    return (
+                      <option key={prog.id} value={prog.name}>
+                        {prog.name} {isCurrentOnPage ? '★ (Active on Program Page)' : ''}
+                      </option>
+                    );
+                  })}
                   <option value="Custom Calisthenics Strength Session">
                     Custom Calisthenics Strength Session
                   </option>
@@ -962,12 +1058,24 @@ export const WorkoutCalendarView: React.FC = () => {
                   <label className="block font-bold text-slate-700 mb-1">Prescribed Intensity</label>
                   <select
                     value={wIntensity}
-                    onChange={(e) => setWIntensity(e.target.value)}
+                    onChange={(e) => {
+                      const newIntensity = e.target.value;
+                      setWIntensity(newIntensity);
+                      const matched = availablePrograms.find(
+                        (p) => p.intensityLabel.toLowerCase() === newIntensity.toLowerCase()
+                      );
+                      if (matched) {
+                        handleRoutineTitleChange(matched.name);
+                      }
+                    }}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
                   >
+                    <option value="50 - 60 % Submax intensity">50 - 60 % Submax intensity</option>
+                    <option value="100% max intensity">100% max intensity</option>
+                    <option value="GTG 20%-30%">GTG 20%-30%</option>
+                    <option value="0%-10% Nothing/Active recovery">0%-10% Nothing/Active recovery</option>
                     <option value="Submaximal 50–60%">Submaximal 50–60%</option>
                     <option value="100% Maximum Intensity">100% Maximum Intensity</option>
-                    <option value="GTG 20%-30%">GTG 20%-30% (5-Min Circuit)</option>
                     <option value="Technique & Deload (40-50%)">Technique & Deload (40-50%)</option>
                   </select>
                 </div>
@@ -1017,23 +1125,79 @@ export const WorkoutCalendarView: React.FC = () => {
                   onChange={(e) => setWRpe(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
                 >
+                  <option value="RPE 2-3 (GTG / Effortless)">RPE 2-3 (GTG / Effortless)</option>
                   <option value="RPE 5-6 (3-4 RIR - Very Fresh)">RPE 5-6 (3-4 RIR - Very Fresh)</option>
                   <option value="RPE 6-7 (2-3 RIR - Prescribed Submax)">RPE 6-7 (2-3 RIR - Prescribed Submax)</option>
                   <option value="RPE 7-8 (1-2 RIR - Solid Challenge)">RPE 7-8 (1-2 RIR - Solid Challenge)</option>
                   <option value="RPE 8-9 (1 RIR - Heavy)">RPE 8-9 (1 RIR - Heavy)</option>
-                  <option value="RPE 10 (0 RIR - True Maximum)">RPE 10 (0 RIR - True Maximum)</option>
+                  <option value="RPE 9.5-10 (0 RIR - True Maximum)">RPE 9.5-10 (0 RIR - True Maximum)</option>
                 </select>
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Exercises Performed</label>
-                <input
-                  type="text"
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-bold text-slate-700">Exercises Performed</label>
+                  {matchedProgram && (
+                    <button
+                      type="button"
+                      onClick={() => setWExercises(getExercisesStringFromWorkout(matchedProgram))}
+                      className="text-[10px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200/60 transition-colors"
+                      title="Reset exercises back to program default"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Reload {matchedProgram.intensityLabel} Exercises</span>
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  rows={3}
                   value={wExercises}
                   onChange={(e) => setWExercises(e.target.value)}
-                  placeholder="e.g. Tuck Planche 5x8s, PPPUs 4x6, Planche Leans 3x15s"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
+                  placeholder="e.g. Frog Planche with Raised Legs, Planche Leans, Dumbbell Leans..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900 leading-relaxed text-xs"
                 />
+
+                {/* Interactive Exercise Chips from the Selected Routine on the Program Page */}
+                {matchedProgram && (
+                  <div className="mt-2 p-2.5 bg-blue-50/50 rounded-xl border border-blue-100 space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-blue-900">
+                      <span className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                        Exercises from {matchedProgram.name} ({matchedProgram.phases.flatMap((p) => p.exercises).length} total):
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-normal">Click chip to toggle</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {matchedProgram.phases.flatMap((p) => p.exercises).map((ex) => {
+                        const isIncluded = wExercises.toLowerCase().includes(ex.name.toLowerCase());
+                        return (
+                          <button
+                            type="button"
+                            key={ex.id}
+                            onClick={() => {
+                              if (isIncluded) {
+                                const parts = wExercises.split(/,\s*/).filter(p => !p.toLowerCase().includes(ex.name.toLowerCase()));
+                                setWExercises(parts.join(', '));
+                              } else {
+                                const prefix = wExercises.trim() ? `${wExercises.trim()}, ` : '';
+                                setWExercises(`${prefix}${ex.name}`);
+                              }
+                            }}
+                            className={`text-[10px] px-2 py-1 rounded-lg font-medium cursor-pointer transition-colors border flex items-center gap-1 ${
+                              isIncluded
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                                : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+                            }`}
+                            title={isIncluded ? 'Click to remove from exercises list' : 'Click to add to exercises list'}
+                          >
+                            <span>{isIncluded ? '✓' : '+'}</span>
+                            <span>{ex.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div>
