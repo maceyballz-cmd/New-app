@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Dumbbell,
   Moon,
+  Briefcase,
   Plus,
   CheckCircle2,
   Trash2,
@@ -19,10 +20,12 @@ import {
   Award,
   Zap,
   RotateCcw,
+  AlertTriangle,
+  Info,
 } from 'lucide-react';
 import { WorkoutProgram, WorkoutType, getWorkoutProgram } from '../data/programData';
 
-export type DayLogType = 'workout' | 'rest';
+export type DayLogType = 'workout' | 'rest' | 'work';
 
 export interface WorkoutLogData {
   workoutName: string;
@@ -42,12 +45,23 @@ export interface RestLogData {
   notes?: string;
 }
 
+export interface WorkLogData {
+  shiftType: string;
+  hoursWorked: number;
+  fatigueLevel: string;
+  physicalStrain: string;
+  shiftTiming?: string;
+  notes?: string;
+}
+
 export interface CalendarDayLog {
   id: string;
   date: string; // 'YYYY-MM-DD'
   type: DayLogType;
   workoutDetails?: WorkoutLogData;
   restDetails?: RestLogData;
+  workDetails?: WorkLogData;
+  isWorkDay?: boolean;
   createdAt?: string;
 }
 
@@ -151,6 +165,16 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
   const [rFatigue, setRFatigue] = useState<string>('Fresh & Ready (1/5)');
   const [rNotes, setRNotes] = useState<string>('');
 
+  // Form states for Work Day Modal
+  const [isWorkModalOpen, setIsWorkModalOpen] = useState(false);
+  const [workDate, setWorkDate] = useState<string>(todayKey);
+  const [workShiftType, setWorkShiftType] = useState<string>('Physical / Manual Labor');
+  const [workHours, setWorkHours] = useState<number>(8);
+  const [workFatigue, setWorkFatigue] = useState<string>('High Fatigue (4/5) - Low energy & power');
+  const [workPhysicalStrain, setWorkPhysicalStrain] = useState<string>('Heavy Lifting & Back Strain');
+  const [workShiftTiming, setWorkShiftTiming] = useState<string>('Standard (9am-5pm)');
+  const [workNotes, setWorkNotes] = useState<string>('');
+
   // Load calendar logs from localStorage & sync with live session history
   const loadLogs = () => {
     try {
@@ -244,6 +268,8 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
   const monthStats = useMemo(() => {
     let workouts = 0;
     let restDays = 0;
+    let workDays = 0;
+    let totalWorkHours = 0;
     const daysInThisMonth = new Date(year, month + 1, 0).getDate();
 
     for (let day = 1; day <= daysInThisMonth; day++) {
@@ -252,13 +278,17 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
       if (log) {
         if (log.type === 'workout') workouts++;
         if (log.type === 'rest') restDays++;
+        if (log.type === 'work' || log.isWorkDay || log.workDetails) {
+          workDays++;
+          totalWorkHours += Number(log.workDetails?.hoursWorked || (log.type === 'work' ? 8 : 0));
+        }
       }
     }
 
     const totalLogged = workouts + restDays;
-    const consistencyRate = Math.round((totalLogged / daysInThisMonth) * 100);
+    const consistencyRate = Math.min(100, Math.round(((workouts + restDays) / daysInThisMonth) * 100));
 
-    return { workouts, restDays, totalLogged, consistencyRate };
+    return { workouts, restDays, workDays, totalWorkHours, totalLogged, consistencyRate };
   }, [calendarLogs, year, month]);
 
   // Overall active streak calculation (counting consecutive days logged up to today)
@@ -376,15 +406,90 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
     setIsRestModalOpen(true);
   };
 
+  // Open Log Work Day modal
+  const openWorkModal = (dateStr?: string, editLog?: CalendarDayLog) => {
+    const targetDate = dateStr || selectedDateKey || todayKey;
+    setWorkDate(targetDate);
+    const existing = editLog || calendarLogs[targetDate];
+    if (existing && existing.workDetails) {
+      setEditingLogId(existing.id);
+      setWorkShiftType(existing.workDetails.shiftType || 'Physical / Manual Labor');
+      setWorkHours(existing.workDetails.hoursWorked || 8);
+      setWorkFatigue(existing.workDetails.fatigueLevel || 'High Fatigue (4/5) - Low energy & power');
+      setWorkPhysicalStrain(existing.workDetails.physicalStrain || 'Heavy Lifting & Back Strain');
+      setWorkShiftTiming(existing.workDetails.shiftTiming || 'Standard (9am-5pm)');
+      setWorkNotes(existing.workDetails.notes || '');
+    } else {
+      setEditingLogId(null);
+      setWorkShiftType('Physical / Manual Labor');
+      setWorkHours(8);
+      setWorkFatigue('High Fatigue (4/5) - Low energy & power');
+      setWorkPhysicalStrain('Heavy Lifting & Back Strain');
+      setWorkShiftTiming('Standard (9am-5pm)');
+      setWorkNotes('');
+    }
+    setIsWorkModalOpen(true);
+  };
+
+  // Athlete Fatigue & Biomechanics Analysis Engine
+  const getWorkFatigueAnalysis = (work?: WorkLogData) => {
+    if (!work) return null;
+    const shift = (work.shiftType || '').toLowerCase();
+    const strain = (work.physicalStrain || '').toLowerCase();
+    const timing = (work.shiftTiming || '').toLowerCase();
+    const fatigue = (work.fatigueLevel || '').toLowerCase();
+
+    const isPhysical = shift.includes('physical') || shift.includes('labor') || strain.includes('lifting') || strain.includes('heavy');
+    const isStanding = shift.includes('standing') || shift.includes('retail') || strain.includes('feet');
+    const isDesk = shift.includes('desk') || shift.includes('sedentary') || strain.includes('neck') || strain.includes('eye');
+    const isNight = shift.includes('night') || timing.includes('night') || shift.includes('graveyard') || shift.includes('healthcare');
+    const isHighStress = shift.includes('stress') || shift.includes('crunch') || fatigue.includes('extreme') || fatigue.includes('5/5');
+
+    let title = 'Shift Fatigue & Performance Impact';
+    let explanation = '';
+    let recommendation = '';
+
+    if (isPhysical) {
+      title = 'Heavy Muscular Depletion & Spinal Loading';
+      explanation = `A ${work.hoursWorked}h physical/manual shift consumes significant muscular glycogen and taxes your lower back, lat stabilizers, and forearms. Because straight-arm planche holds depend directly on scapular depression and unbroken core tension, raw strength will naturally feel reduced.`;
+      recommendation = "Why you're fatigued: Your physical energy reserves have gone into work tasks. If training today, don't attempt maximum isometric PRs. Drop intensity to 50–60% submax or 5-min GTG supersets, and emphasize wrist and forearm decompression.";
+    } else if (isDesk) {
+      title = 'Prolonged Postural Tension & Wrist Stiffening';
+      explanation = `Sustained seated desk work for ${work.hoursWorked} hours tightens the hip flexors, increases thoracic rounding (kyphosis), and causes forward shoulder roll. This restricts the open shoulder angle and scapular protraction needed for a clean straight-body planche lean.`;
+      recommendation = "Why you're fatigued: Passive sitting causes postural stagnation and mental eye fatigue. Spend 5 minutes on thoracic foam rolling and wrist extension stretches before starting holds to avoid forearm splints and unlock protraction.";
+    } else if (isNight) {
+      title = 'Circadian Misalignment & CNS Recovery Delay';
+      explanation = `Night and rotating shift schedules disrupt cortisol and melatonin rhythms, decreasing motor unit synchronization and tendon collagen recovery rate.`;
+      recommendation = "Why you're fatigued: Irregular sleep cycles blunt maximum central nervous system output. Warm up with extra submaximal sets, avoid pushing to failure (keep RIR ≥ 2-3), and prioritize electrolyte hydration.";
+    } else if (isStanding) {
+      title = 'Lower Extremity Exhaustion & Core Stabilization Strain';
+      explanation = `Being on your feet for ${work.hoursWorked} hours tires out the gluteus medius, plantar fascia, and lumbar erectors. This makes holding posterior pelvic tilt (PPT) in tuck and straddle planche positions feel much heavier than usual.`;
+      recommendation = "Why you're fatigued: Standing accumulates venous pooling and lumbar fatigue. Elevate your legs for 10 minutes before training to restore circulation and reduce lower back arching.";
+    } else if (isHighStress) {
+      title = 'High Cognitive Load & Central Nervous System (CNS) Drain';
+      explanation = `Intense mental stress elevates sympathetic nervous system activation, which reduces neuromuscular rate of force development (RFD).`;
+      recommendation = "Why you're fatigued: High mental strain increases perceived effort (RPE) by +1 to +2 points for the exact same physical weight. Be kind to yourself today and count a solid submax session as a major win.";
+    } else {
+      title = 'Cumulative Daily Allostatic Load';
+      explanation = `A ${work.hoursWorked}h shift contributes significantly to total daily physiological strain. Central fatigue lowers motivation and makes initial warm-ups feel sluggish.`;
+      recommendation = "Why you're fatigued: Work hours deplete your daily cognitive battery. Once you warm up, momentum builds—but listen to biofeedback and avoid pushing beyond RPE 7-8.";
+    }
+
+    return { title, explanation, recommendation };
+  };
+
   // Save Workout Submission
   const handleSaveWorkout = (e: React.FormEvent) => {
     e.preventDefault();
     if (!wDate) return;
 
+    const existingLog = calendarLogs[wDate];
     const newLog: CalendarDayLog = {
-      id: editingLogId || `cal-${Date.now()}`,
+      id: editingLogId || existingLog?.id || `cal-${Date.now()}`,
       date: wDate,
       type: 'workout',
+      isWorkDay: existingLog?.isWorkDay,
+      workDetails: existingLog?.workDetails,
       workoutDetails: {
         workoutName: wName,
         workoutIntensity: wIntensity,
@@ -395,7 +500,7 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
         targetRpe: wRpe,
         notes: wNotes,
       },
-      createdAt: new Date().toISOString(),
+      createdAt: existingLog?.createdAt || new Date().toISOString(),
     };
 
     const updated = { ...calendarLogs, [wDate]: newLog };
@@ -440,17 +545,20 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
     e.preventDefault();
     if (!rDate) return;
 
+    const existingLog = calendarLogs[rDate];
     const newLog: CalendarDayLog = {
       id: editingLogId || `cal-rest-${Date.now()}`,
       date: rDate,
       type: 'rest',
+      isWorkDay: existingLog?.isWorkDay,
+      workDetails: existingLog?.workDetails,
       restDetails: {
         restType: rType,
         sleepQuality: rSleep,
         fatigueLevel: rFatigue,
         notes: rNotes,
       },
-      createdAt: new Date().toISOString(),
+      createdAt: existingLog?.createdAt || new Date().toISOString(),
     };
 
     const updated = { ...calendarLogs, [rDate]: newLog };
@@ -458,6 +566,66 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
     saveCalendarLogToCloud(newLog);
     setIsRestModalOpen(false);
     setSelectedDateKey(rDate);
+  };
+
+  // Save Work Day Submission
+  const handleSaveWork = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!workDate) return;
+
+    const existingLog = calendarLogs[workDate];
+    const newLog: CalendarDayLog = {
+      id: editingLogId || existingLog?.id || `cal-work-${Date.now()}`,
+      date: workDate,
+      type: existingLog?.workoutDetails ? 'workout' : 'work',
+      isWorkDay: true,
+      workoutDetails: existingLog?.workoutDetails,
+      restDetails: existingLog?.type === 'rest' ? existingLog.restDetails : undefined,
+      workDetails: {
+        shiftType: workShiftType,
+        hoursWorked: Number(workHours) || 8,
+        fatigueLevel: workFatigue,
+        physicalStrain: workPhysicalStrain,
+        shiftTiming: workShiftTiming,
+        notes: workNotes,
+      },
+      createdAt: existingLog?.createdAt || new Date().toISOString(),
+    };
+
+    const updated = { ...calendarLogs, [workDate]: newLog };
+    saveCalendarLogs(updated);
+    saveCalendarLogToCloud(newLog);
+    setIsWorkModalOpen(false);
+    setSelectedDateKey(workDate);
+  };
+
+  // Delete only work details for a date
+  const handleDeleteWorkOnly = (targetDate: string) => {
+    const existing = calendarLogs[targetDate];
+    if (!existing) return;
+    if (existing.workoutDetails) {
+      const updatedLog: CalendarDayLog = {
+        ...existing,
+        type: 'workout',
+        isWorkDay: false,
+        workDetails: undefined,
+      };
+      const updated = { ...calendarLogs, [targetDate]: updatedLog };
+      saveCalendarLogs(updated);
+      saveCalendarLogToCloud(updatedLog);
+    } else if (existing.restDetails) {
+      const updatedLog: CalendarDayLog = {
+        ...existing,
+        type: 'rest',
+        isWorkDay: false,
+        workDetails: undefined,
+      };
+      const updated = { ...calendarLogs, [targetDate]: updatedLog };
+      saveCalendarLogs(updated);
+      saveCalendarLogToCloud(updatedLog);
+    } else {
+      handleDeleteDateLog(targetDate);
+    }
   };
 
   // Delete log for date
@@ -518,7 +686,7 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
         </div>
 
         {/* Quick Action Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center flex-wrap gap-2">
           <button
             type="button"
             onClick={() => openWorkoutModal(selectedDateKey)}
@@ -535,6 +703,15 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
           </button>
           <button
             type="button"
+            onClick={() => openWorkModal(selectedDateKey)}
+            className="px-3.5 py-2 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200/90 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+            title="Log work day shift hours, physical strain, and fatigue so you know why you're fatigued"
+          >
+            <Briefcase className="w-3.5 h-3.5 text-amber-600" />
+            <span>+ Log Work Day</span>
+          </button>
+          <button
+            type="button"
             onClick={() => openRestModal(selectedDateKey)}
             className="px-3.5 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
           >
@@ -545,7 +722,7 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
       </div>
 
       {/* MyFitnessPal Style Summary Stats Banner */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50/70 p-3.5 rounded-xl border border-slate-100">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 bg-slate-50/70 p-3.5 rounded-xl border border-slate-100">
         <div className="flex items-center gap-3 p-2 bg-white rounded-lg border border-slate-100 shadow-2xs">
           <div className="w-9 h-9 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center shrink-0">
             <Flame className="w-4 h-4 text-amber-600" />
@@ -575,6 +752,20 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
         </div>
 
         <div className="flex items-center gap-3 p-2 bg-white rounded-lg border border-slate-100 shadow-2xs">
+          <div className="w-9 h-9 rounded-lg bg-amber-50/80 border border-amber-200/70 flex items-center justify-center shrink-0">
+            <Briefcase className="w-4 h-4 text-amber-600" />
+          </div>
+          <div>
+            <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+              Work Days (Month)
+            </div>
+            <div className="text-base font-bold text-amber-800 leading-tight">
+              {monthStats.workDays} Shifts ({monthStats.totalWorkHours}h)
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 p-2 bg-white rounded-lg border border-slate-100 shadow-2xs">
           <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0">
             <Moon className="w-4 h-4 text-emerald-600" />
           </div>
@@ -588,7 +779,7 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
           </div>
         </div>
 
-        <div className="flex items-center gap-3 p-2 bg-white rounded-lg border border-slate-100 shadow-2xs">
+        <div className="flex items-center gap-3 p-2 bg-white rounded-lg border border-slate-100 shadow-2xs col-span-2 sm:col-span-1">
           <div className="w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center shrink-0">
             <Award className="w-4 h-4 text-indigo-600" />
           </div>
@@ -624,6 +815,10 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block"></span>
               <span>Workout Day</span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
+              <span>Work Day</span>
             </span>
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block"></span>
@@ -722,31 +917,57 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                 </div>
 
                 {/* Day Content Badges */}
-                <div className="mt-1 flex-1 flex flex-col justify-end">
+                <div className="mt-1 flex-1 flex flex-col justify-end space-y-1">
                   {log ? (
-                    log.type === 'workout' ? (
-                      <div className="bg-blue-500/10 hover:bg-blue-500/15 border border-blue-200/80 rounded-md p-1 sm:p-1.5 transition-colors">
-                        <div className="flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-blue-700 leading-tight truncate">
-                          <Dumbbell className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
-                          <span className="truncate">
-                            {log.workoutDetails?.workoutIntensity || 'Workout'}
-                          </span>
+                    log.type === 'work' ? (
+                      <div className="bg-amber-500/10 hover:bg-amber-500/15 border border-amber-300/80 rounded-md p-1 sm:p-1.5 transition-colors">
+                        <div className="flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-amber-800 leading-tight truncate">
+                          <Briefcase className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0 text-amber-600" />
+                          <span className="truncate">Work · {log.workDetails?.hoursWorked || 8}h</span>
                         </div>
-                        <div className="hidden sm:block text-[9px] text-blue-600/90 font-medium truncate mt-0.5">
-                          {log.workoutDetails?.completedSets} sets · {log.workoutDetails?.durationMinutes}m
+                        <div className="hidden sm:block text-[9px] text-amber-700/90 font-medium truncate mt-0.5">
+                          {log.workDetails?.fatigueLevel?.split(' ')[0] || 'Work Day'}
                         </div>
                       </div>
+                    ) : log.type === 'workout' ? (
+                      <div>
+                        <div className="bg-blue-500/10 hover:bg-blue-500/15 border border-blue-200/80 rounded-md p-1 sm:p-1.5 transition-colors">
+                          <div className="flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-blue-700 leading-tight truncate">
+                            <Dumbbell className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
+                            <span className="truncate">
+                              {log.workoutDetails?.workoutIntensity || 'Workout'}
+                            </span>
+                          </div>
+                          <div className="hidden sm:block text-[9px] text-blue-600/90 font-medium truncate mt-0.5">
+                            {log.workoutDetails?.completedSets} sets · {log.workoutDetails?.durationMinutes}m
+                          </div>
+                        </div>
+                        {log.workDetails && (
+                          <div className="mt-1 flex items-center gap-1 text-[9px] text-amber-800 bg-amber-50 border border-amber-200/80 px-1 py-0.5 rounded font-bold truncate">
+                            <Briefcase className="w-2 h-2 text-amber-600 shrink-0" />
+                            <span className="truncate">+{log.workDetails.hoursWorked}h Work</span>
+                          </div>
+                        )}
+                      </div>
                     ) : (
-                      <div className="bg-emerald-500/10 hover:bg-emerald-500/15 border border-emerald-200/80 rounded-md p-1 sm:p-1.5 transition-colors">
-                        <div className="flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-emerald-700 leading-tight truncate">
-                          <Moon className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
-                          <span className="truncate">
-                            {log.restDetails?.restType || 'Rest Day'}
-                          </span>
+                      <div>
+                        <div className="bg-emerald-500/10 hover:bg-emerald-500/15 border border-emerald-200/80 rounded-md p-1 sm:p-1.5 transition-colors">
+                          <div className="flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-emerald-700 leading-tight truncate">
+                            <Moon className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
+                            <span className="truncate">
+                              {log.restDetails?.restType || 'Rest Day'}
+                            </span>
+                          </div>
+                          <div className="hidden sm:block text-[9px] text-emerald-600/90 font-medium truncate mt-0.5">
+                            {log.restDetails?.sleepQuality?.split(' ')[0] || 'Rest'}
+                          </div>
                         </div>
-                        <div className="hidden sm:block text-[9px] text-emerald-600/90 font-medium truncate mt-0.5">
-                          {log.restDetails?.sleepQuality?.split(' ')[0] || 'Rest'}
-                        </div>
+                        {log.workDetails && (
+                          <div className="mt-1 flex items-center gap-1 text-[9px] text-amber-800 bg-amber-50 border border-amber-200/80 px-1 py-0.5 rounded font-bold truncate">
+                            <Briefcase className="w-2 h-2 text-amber-600 shrink-0" />
+                            <span className="truncate">+{log.workDetails.hoursWorked}h Work</span>
+                          </div>
+                        )}
                       </div>
                     )
                   ) : null}
@@ -769,7 +990,7 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
             </h4>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center flex-wrap gap-2">
             {selectedLog ? (
               <>
                 <button
@@ -777,6 +998,8 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                   onClick={() => {
                     if (selectedLog.type === 'workout') {
                       openWorkoutModal(selectedDateKey, selectedLog);
+                    } else if (selectedLog.type === 'work') {
+                      openWorkModal(selectedDateKey, selectedLog);
                     } else {
                       openRestModal(selectedDateKey, selectedLog);
                     }
@@ -784,8 +1007,20 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                   className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
                 >
                   <Edit3 className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Edit</span>
+                  <span>Edit {selectedLog.type === 'work' ? 'Work Log' : selectedLog.type === 'workout' ? 'Workout' : 'Rest Log'}</span>
                 </button>
+
+                {!selectedLog.workDetails && (
+                  <button
+                    type="button"
+                    onClick={() => openWorkModal(selectedDateKey, selectedLog)}
+                    className="px-3 py-1.5 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                    title="Mark or log work shift for this date to track fatigue impact"
+                  >
+                    <Briefcase className="w-3.5 h-3.5 text-amber-600" />
+                    <span>+ Add Work Shift</span>
+                  </button>
+                )}
 
                 {deleteConfirmDate === selectedDateKey ? (
                   <div className="flex items-center gap-1.5">
@@ -817,7 +1052,7 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                 )}
               </>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => openWorkoutModal(selectedDateKey)}
@@ -825,6 +1060,14 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                 >
                   <Dumbbell className="w-3.5 h-3.5" />
                   <span>Log Workout</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openWorkModal(selectedDateKey)}
+                  className="px-3 py-1.5 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                >
+                  <Briefcase className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Log Work Day</span>
                 </button>
                 <button
                   type="button"
@@ -842,132 +1085,263 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
         {/* Selected Log Content */}
         <div className="mt-4">
           {selectedLog ? (
-            selectedLog.type === 'workout' ? (
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg bg-blue-600 text-white">
-                    <Dumbbell className="w-3.5 h-3.5" />
-                    <span>Workout Completed</span>
-                  </span>
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-800">
-                    {selectedLog.workoutDetails?.workoutName}
-                  </span>
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200 text-blue-700">
-                    {selectedLog.workoutDetails?.workoutIntensity}
-                  </span>
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-700">
-                    {selectedLog.workoutDetails?.targetRpe}
-                  </span>
-                </div>
+            <div className="space-y-4">
+              {/* Workout Details if present */}
+              {selectedLog.workoutDetails && (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg bg-blue-600 text-white">
+                      <Dumbbell className="w-3.5 h-3.5" />
+                      <span>Workout Completed</span>
+                    </span>
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-800">
+                      {selectedLog.workoutDetails.workoutName}
+                    </span>
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200 text-blue-700">
+                      {selectedLog.workoutDetails.workoutIntensity}
+                    </span>
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-700">
+                      {selectedLog.workoutDetails.targetRpe}
+                    </span>
+                  </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  <div className="bg-white p-3 rounded-xl border border-slate-200">
-                    <div className="text-[11px] text-slate-500 font-medium">Sets Completed</div>
-                    <div className="text-sm font-bold text-slate-900 mt-0.5">
-                      {selectedLog.workoutDetails?.completedSets} / {selectedLog.workoutDetails?.totalSets} sets
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div className="bg-white p-3 rounded-xl border border-slate-200">
+                      <div className="text-[11px] text-slate-500 font-medium">Sets Completed</div>
+                      <div className="text-sm font-bold text-slate-900 mt-0.5">
+                        {selectedLog.workoutDetails.completedSets} / {selectedLog.workoutDetails.totalSets} sets
+                      </div>
+                    </div>
+                    <div className="bg-white p-3 rounded-xl border border-slate-200">
+                      <div className="text-[11px] text-slate-500 font-medium">Session Duration</div>
+                      <div className="text-sm font-bold text-slate-900 mt-0.5">
+                        {selectedLog.workoutDetails.durationMinutes} minutes
+                      </div>
+                    </div>
+                    <div className="bg-white p-3 rounded-xl border border-slate-200 col-span-2 sm:col-span-1">
+                      <div className="text-[11px] text-slate-500 font-medium">Completion Rate</div>
+                      <div className="text-sm font-bold text-emerald-600 mt-0.5 flex items-center gap-1">
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>
+                          {Math.round(
+                            ((selectedLog.workoutDetails.completedSets || 1) /
+                              (selectedLog.workoutDetails.totalSets || 1)) *
+                              100
+                          )}
+                          % Achieved
+                        </span>
+                      </div>
                     </div>
                   </div>
-                  <div className="bg-white p-3 rounded-xl border border-slate-200">
-                    <div className="text-[11px] text-slate-500 font-medium">Session Duration</div>
-                    <div className="text-sm font-bold text-slate-900 mt-0.5">
-                      {selectedLog.workoutDetails?.durationMinutes} minutes
+
+                  {selectedLog.workoutDetails.exercises && (
+                    <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-1">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        Exercises Performed
+                      </div>
+                      <div className="text-xs text-slate-700 leading-relaxed">
+                        {selectedLog.workoutDetails.exercises}
+                      </div>
                     </div>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-slate-200 col-span-2 sm:col-span-1">
-                    <div className="text-[11px] text-slate-500 font-medium">Completion Rate</div>
-                    <div className="text-sm font-bold text-emerald-600 mt-0.5 flex items-center gap-1">
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>
-                        {Math.round(
-                          ((selectedLog.workoutDetails?.completedSets || 1) /
-                            (selectedLog.workoutDetails?.totalSets || 1)) *
-                            100
-                        )}
-                        % Achieved
+                  )}
+
+                  {selectedLog.workoutDetails.notes && (
+                    <div className="bg-blue-50/60 p-3.5 rounded-xl border border-blue-100 space-y-1">
+                      <div className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-blue-900">
+                        <FileText className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Athlete Biofeedback & Session Notes</span>
+                      </div>
+                      <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed italic">
+                        "{selectedLog.workoutDetails.notes}"
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Rest Details if present and not a pure workout */}
+              {selectedLog.restDetails && !selectedLog.workoutDetails && (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg bg-emerald-600 text-white">
+                      <Moon className="w-3.5 h-3.5" />
+                      <span>Rest & Recovery Day</span>
+                    </span>
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-800">
+                      {selectedLog.restDetails.restType}
+                    </span>
+                    {selectedLog.restDetails.sleepQuality && (
+                      <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700">
+                        Sleep: {selectedLog.restDetails.sleepQuality}
                       </span>
-                    </div>
+                    )}
+                    {selectedLog.restDetails.fatigueLevel && (
+                      <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-700">
+                        Status: {selectedLog.restDetails.fatigueLevel}
+                      </span>
+                    )}
                   </div>
-                </div>
 
-                {selectedLog.workoutDetails?.exercises && (
-                  <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-1">
-                    <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                      Exercises Performed
-                    </div>
-                    <div className="text-xs text-slate-700 leading-relaxed">
-                      {selectedLog.workoutDetails.exercises}
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-2">
+                    <div className="text-xs text-slate-600 leading-relaxed">
+                      {selectedLog.restDetails.restType === 'Full Rest' &&
+                        'Nervous system and biceps tendon regeneration day. Full rest allows complete ATP resynthesis and collagen remodeling.'}
+                      {selectedLog.restDetails.restType === 'Active Recovery' &&
+                        'Light low-intensity movement to promote systemic bloodflow and accelerate muscular recovery without neural stress.'}
+                      {selectedLog.restDetails.restType === 'Mobility & Prehab' &&
+                        'Focused on wrist extension prep, shoulder internal/external rotation, and thoracic spine decompressive stretches.'}
                     </div>
                   </div>
-                )}
 
-                {selectedLog.workoutDetails?.notes && (
-                  <div className="bg-blue-50/60 p-3.5 rounded-xl border border-blue-100 space-y-1">
-                    <div className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-blue-900">
-                      <FileText className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Athlete Biofeedback & Session Notes</span>
+                  {selectedLog.restDetails.notes && (
+                    <div className="bg-emerald-50/60 p-3.5 rounded-xl border border-emerald-100 space-y-1">
+                      <div className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-emerald-900">
+                        <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Recovery Notes & Biofeedback</span>
+                      </div>
+                      <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed italic">
+                        "{selectedLog.restDetails.notes}"
+                      </p>
                     </div>
-                    <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed italic">
-                      "{selectedLog.workoutDetails.notes}"
-                    </p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg bg-emerald-600 text-white">
-                    <Moon className="w-3.5 h-3.5" />
-                    <span>Rest & Recovery Day</span>
-                  </span>
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-800">
-                    {selectedLog.restDetails?.restType}
-                  </span>
-                  {selectedLog.restDetails?.sleepQuality && (
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700">
-                      Sleep: {selectedLog.restDetails.sleepQuality}
-                    </span>
-                  )}
-                  {selectedLog.restDetails?.fatigueLevel && (
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-700">
-                      Status: {selectedLog.restDetails.fatigueLevel}
-                    </span>
                   )}
                 </div>
+              )}
 
-                <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-2">
-                  <div className="text-xs text-slate-600 leading-relaxed">
-                    {selectedLog.restDetails?.restType === 'Full Rest' &&
-                      'Nervous system and biceps tendon regeneration day. Full rest allows complete ATP resynthesis and collagen remodeling.'}
-                    {selectedLog.restDetails?.restType === 'Active Recovery' &&
-                      'Light low-intensity movement to promote systemic bloodflow and accelerate muscular recovery without neural stress.'}
-                    {selectedLog.restDetails?.restType === 'Mobility & Prehab' &&
-                      'Focused on wrist extension prep, shoulder internal/external rotation, and thoracic spine decompressive stretches.'}
-                  </div>
-                </div>
+              {/* Work Day & Fatigue Analysis Section (shows whenever workDetails is present) */}
+              {selectedLog.workDetails && (() => {
+                const analysis = getWorkFatigueAnalysis(selectedLog.workDetails);
+                return (
+                  <div className="bg-amber-50/70 border border-amber-200/90 rounded-2xl p-4 sm:p-5 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-amber-200/60">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center shrink-0">
+                          <Briefcase className="w-4 h-4 text-amber-700" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-bold text-amber-950">Work Day Recorded</span>
+                            <span className="text-[10px] bg-amber-200 text-amber-900 font-bold px-2 py-0.5 rounded-full">
+                              {selectedLog.workDetails.hoursWorked} Hours
+                            </span>
+                            {selectedLog.workDetails.shiftTiming && (
+                              <span className="text-[10px] bg-white text-amber-800 font-medium px-2 py-0.5 rounded-full border border-amber-200">
+                                {selectedLog.workDetails.shiftTiming}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-amber-800 font-medium mt-0.5">
+                            {selectedLog.workDetails.shiftType} · {selectedLog.workDetails.physicalStrain}
+                          </p>
+                        </div>
+                      </div>
 
-                {selectedLog.restDetails?.notes && (
-                  <div className="bg-emerald-50/60 p-3.5 rounded-xl border border-emerald-100 space-y-1">
-                    <div className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-emerald-900">
-                      <FileText className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>Recovery Notes & Biofeedback</span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openWorkModal(selectedDateKey, selectedLog)}
+                          className="px-2.5 py-1 text-[11px] font-semibold text-amber-900 bg-white hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                        >
+                          <Edit3 className="w-3 h-3 text-amber-700" />
+                          <span>Edit Shift</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteWorkOnly(selectedDateKey)}
+                          className="px-2.5 py-1 text-[11px] font-semibold text-rose-700 bg-white hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                          title="Remove work day record from this date"
+                        >
+                          <Trash2 className="w-3 h-3 text-rose-600" />
+                          <span>Remove Shift</span>
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed italic">
-                      "{selectedLog.restDetails.notes}"
-                    </p>
+
+                    {/* Metric Cards */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                      <div className="bg-white p-2.5 rounded-xl border border-amber-200/60 shadow-2xs">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Shift Duration</div>
+                        <div className="text-sm font-bold text-slate-900 mt-0.5">{selectedLog.workDetails.hoursWorked} hrs</div>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-xl border border-amber-200/60 shadow-2xs">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Shift Category</div>
+                        <div className="text-xs font-bold text-slate-800 mt-0.5 truncate" title={selectedLog.workDetails.shiftType}>
+                          {selectedLog.workDetails.shiftType}
+                        </div>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-xl border border-amber-200/60 shadow-2xs">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Work Fatigue</div>
+                        <div className="text-xs font-bold text-amber-800 mt-0.5 truncate" title={selectedLog.workDetails.fatigueLevel}>
+                          {selectedLog.workDetails.fatigueLevel}
+                        </div>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-xl border border-amber-200/60 shadow-2xs">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Physical Strain</div>
+                        <div className="text-xs font-bold text-slate-800 mt-0.5 truncate" title={selectedLog.workDetails.physicalStrain}>
+                          {selectedLog.workDetails.physicalStrain}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Why You're Fatigued Athlete Biomechanical Breakdown */}
+                    {analysis && (
+                      <div className="bg-white rounded-xl p-4 border border-amber-200/90 shadow-2xs space-y-2">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-amber-950">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span>Why You're Fatigued: {analysis.title}</span>
+                        </div>
+                        <p className="text-xs text-slate-700 leading-relaxed">
+                          {analysis.explanation}
+                        </p>
+                        <div className="bg-amber-50/80 p-3 rounded-lg border border-amber-200 text-xs text-amber-950 font-medium leading-relaxed">
+                          💡 <strong className="font-bold text-amber-900">Training Calibration:</strong> {analysis.recommendation}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Personal Fatigue & Work Notes */}
+                    {selectedLog.workDetails.notes && (
+                      <div className="bg-white/80 p-3.5 rounded-xl border border-amber-200/70 space-y-1">
+                        <div className="text-[10px] font-bold text-amber-900 uppercase tracking-wider flex items-center gap-1">
+                          <FileText className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Workplace Fatigue Biofeedback Notes</span>
+                        </div>
+                        <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed italic">
+                          "{selectedLog.workDetails.notes}"
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Quick prompt to log workout if purely a work day */}
+                    {selectedLog.type === 'work' && !selectedLog.workoutDetails && (
+                      <div className="p-3 bg-blue-50/60 border border-blue-200/70 rounded-xl flex items-center justify-between gap-3 text-xs">
+                        <div className="text-blue-900">
+                          <span className="font-bold">Did you train before or after this work shift?</span>
+                          <p className="text-[11px] text-blue-700 mt-0.5">Attach a workout session to this date to record your exercises and sets.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openWorkoutModal(selectedDateKey)}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shrink-0 transition-colors cursor-pointer flex items-center gap-1"
+                        >
+                          <Dumbbell className="w-3.5 h-3.5" />
+                          <span>+ Log Workout</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            )
+                );
+              })()}
+            </div>
           ) : (
             <div className="py-6 text-center text-slate-500 space-y-2">
               <Activity className="w-8 h-8 text-slate-300 mx-auto" />
               <div className="text-xs font-semibold text-slate-700">
-                No activity or rest logged for this date.
+                No activity, work shift, or rest logged for this date.
               </div>
               <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
-                Log a workout session to track your volume, or record a rest day to keep your recovery habits and consistency score high!
+                Log a workout session, mark a work day to monitor fatigue impact, or record a rest day to keep your recovery habits high!
               </p>
-              <div className="pt-2 flex items-center justify-center gap-3">
+              <div className="pt-2 flex items-center justify-center flex-wrap gap-2.5">
                 <button
                   type="button"
                   onClick={() => openWorkoutModal(selectedDateKey)}
@@ -975,6 +1349,14 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                 >
                   <Dumbbell className="w-3.5 h-3.5" />
                   <span>Log Workout</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openWorkModal(selectedDateKey)}
+                  className="px-3.5 py-2 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                >
+                  <Briefcase className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Log Work Day</span>
                 </button>
                 <button
                   type="button"
@@ -1341,6 +1723,195 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   <span>{editingLogId ? 'Update Rest Day' : 'Save Rest Day'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: Log Work Day Modal */}
+      {isWorkModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 border border-slate-200 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center">
+                  <Briefcase className="w-4 h-4 text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    {editingLogId ? 'Edit Work Day Log' : 'Log Work Day & Shift Fatigue'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Track your shift hours, strain, and see why you're fatigued
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsWorkModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveWork} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Work Date</label>
+                <input
+                  type="date"
+                  required
+                  value={workDate}
+                  onChange={(e) => setWorkDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium text-slate-900"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Shift Category / Job Type</label>
+                  <select
+                    value={workShiftType}
+                    onChange={(e) => setWorkShiftType(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium text-slate-900"
+                  >
+                    <option value="Physical / Manual Labor">Physical / Manual Labor</option>
+                    <option value="Standing / Retail / Hospitality">Standing / Retail / Hospitality</option>
+                    <option value="Desk / Sedentary Focus">Desk / Sedentary Focus</option>
+                    <option value="Healthcare / Shift Work">Healthcare / Shift Work</option>
+                    <option value="High-Stress Project Crunch">High-Stress Project Crunch</option>
+                    <option value="Standard Office Shift">Standard Office Shift</option>
+                    <option value="Warehouse / Heavy Logistics">Warehouse / Heavy Logistics</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Hours Worked</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={24}
+                    step={0.5}
+                    required
+                    value={workHours}
+                    onChange={(e) => setWorkHours(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Shift Timing</label>
+                  <select
+                    value={workShiftTiming}
+                    onChange={(e) => setWorkShiftTiming(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium text-slate-900"
+                  >
+                    <option value="Standard (9am-5pm)">Standard (9am-5pm)</option>
+                    <option value="Early Morning Shift (5am-1pm)">Early Morning Shift (5am-1pm)</option>
+                    <option value="Afternoon / Evening (2pm-10pm)">Afternoon / Evening (2pm-10pm)</option>
+                    <option value="Night / Graveyard Shift (10pm-6am)">Night / Graveyard Shift (10pm-6am)</option>
+                    <option value="12-Hour Long Shift">12-Hour Long Shift</option>
+                    <option value="Split Shift / Irregular">Split Shift / Irregular</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Muscular / Physical Strain</label>
+                  <select
+                    value={workPhysicalStrain}
+                    onChange={(e) => setWorkPhysicalStrain(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium text-slate-900"
+                  >
+                    <option value="Heavy Lifting & Back Strain">Heavy Lifting & Back Strain</option>
+                    <option value="Feet & Lower Body Soreness">Feet & Lower Body Soreness</option>
+                    <option value="Neck, Traps & Eye Strain">Neck, Traps & Eye Strain</option>
+                    <option value="Full-Body Systemic Exhaustion">Full-Body Systemic Exhaustion</option>
+                    <option value="Light / Low Physical Demand">Light / Low Physical Demand</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Perceived Fatigue Level</label>
+                <select
+                  value={workFatigue}
+                  onChange={(e) => setWorkFatigue(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium text-slate-900"
+                >
+                  <option value="Extreme Exhaustion (5/5) - Severe training fatigue">
+                    Extreme Exhaustion (5/5) - Severe training fatigue
+                  </option>
+                  <option value="High Fatigue (4/5) - Low energy & power">
+                    High Fatigue (4/5) - Low energy & power
+                  </option>
+                  <option value="Moderate Drain (3/5) - Noticeably tired">
+                    Moderate Drain (3/5) - Noticeably tired
+                  </option>
+                  <option value="Mild Tiredness (2/5) - Manageable">
+                    Mild Tiredness (2/5) - Manageable
+                  </option>
+                  <option value="Fresh / Light (1/5) - Plenty of energy">
+                    Fresh / Light (1/5) - Plenty of energy
+                  </option>
+                </select>
+              </div>
+
+              {/* Live Fatigue & Planche Biomechanics Impact Preview */}
+              {(() => {
+                const preview = getWorkFatigueAnalysis({
+                  shiftType: workShiftType,
+                  hoursWorked: workHours,
+                  fatigueLevel: workFatigue,
+                  physicalStrain: workPhysicalStrain,
+                  shiftTiming: workShiftTiming,
+                });
+                return preview ? (
+                  <div className="p-3.5 bg-amber-50/80 rounded-xl border border-amber-200/90 space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-amber-950">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>{preview.title}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-700 leading-relaxed">
+                      {preview.explanation}
+                    </p>
+                    <div className="text-[11px] text-amber-900 font-semibold pt-1 border-t border-amber-200/50">
+                      💡 {preview.recommendation}
+                    </div>
+                  </div>
+                ) : null;
+              })()}
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Why I'm Fatigued & Workplace Notes
+                </label>
+                <textarea
+                  rows={3}
+                  value={workNotes}
+                  onChange={(e) => setWorkNotes(e.target.value)}
+                  placeholder="Describe your day: e.g., 'On feet 8.5 hours handling pallets, lower back fatigued and forearms pumped. Explains why planche lean felt heavier today.'"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium text-slate-900 leading-relaxed text-xs"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsWorkModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>{editingLogId ? 'Update Work Day' : 'Save Work Day'}</span>
                 </button>
               </div>
             </form>

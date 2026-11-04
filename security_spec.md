@@ -16,7 +16,7 @@
 5. **Oversized String Injection**: User attempting to inject a 1MB notes string into `notes` -> DENIED (max 2048 chars).
 6. **Malicious Path Traversal / Poisoned ID**: Attempting to create a document with ID `../../root` or a 500-char random key -> DENIED (`isValidId` check).
 7. **Invalid Type Mutation**: Sending `completedSets: "twenty"` instead of a number -> DENIED.
-8. **Invalid Enum in Calendar**: Sending `type: "party"` instead of `"workout"` or `"rest"` -> DENIED.
+8. **Invalid Enum in Calendar**: Sending `type: "party"` instead of `"workout"`, `"rest"`, or `"work"` -> DENIED.
 9. **Missing Required Fields**: Creating a workout log without `completedSets` or `totalSets` -> DENIED.
 10. **Shadow Field Injection**: Adding arbitrary admin rights `isAdmin: true` into `UserProfile` -> DENIED (`hasOnly` / strict key rules).
 11. **Negative Numeric Values**: Sending `completedSets: -5` -> DENIED.

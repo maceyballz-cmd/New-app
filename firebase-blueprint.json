@@ -34,13 +34,13 @@
     },
     "CalendarLog": {
       "title": "CalendarLog",
-      "description": "Calendar log for manual workout or rest day",
+      "description": "Calendar log for manual workout, rest day, or work day",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
         "userId": { "type": "string", "maxLength": 128 },
         "date": { "type": "string", "maxLength": 32 },
-        "type": { "type": "string", "enum": ["workout", "rest"], "maxLength": 16 },
+        "type": { "type": "string", "enum": ["workout", "rest", "work"], "maxLength": 16 },
         "workoutName": { "type": "string", "maxLength": 256 },
         "workoutIntensity": { "type": "string", "maxLength": 128 },
         "durationMinutes": { "type": "number" },
@@ -50,6 +50,11 @@
         "restType": { "type": "string", "maxLength": 64 },
         "sleepQuality": { "type": "string", "maxLength": 64 },
         "fatigueLevel": { "type": "string", "maxLength": 64 },
+        "shiftType": { "type": "string", "maxLength": 128 },
+        "workHours": { "type": "number" },
+        "workFatigue": { "type": "string", "maxLength": 64 },
+        "physicalStrain": { "type": "string", "maxLength": 128 },
+        "isWorkDay": { "type": "boolean" },
         "notes": { "type": "string", "maxLength": 2048 },
         "createdAt": { "type": "string", "maxLength": 64 }
       },

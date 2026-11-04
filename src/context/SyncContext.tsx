@@ -158,7 +158,8 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 id: cleanId,
                 userId: uid,
                 date: entry.date,
-                type: entry.type === 'rest' ? 'rest' : 'workout',
+                type: entry.type === 'rest' ? 'rest' : entry.type === 'work' ? 'work' : 'workout',
+                isWorkDay: Boolean(entry.isWorkDay || entry.type === 'work'),
                 workoutName: String(entry.workoutDetails?.workoutName || '').slice(0, 256),
                 workoutIntensity: String(entry.workoutDetails?.workoutIntensity || '').slice(0, 128),
                 durationMinutes: Number(entry.workoutDetails?.durationMinutes || 0),
@@ -168,7 +169,11 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 restType: String(entry.restDetails?.restType || '').slice(0, 64),
                 sleepQuality: String(entry.restDetails?.sleepQuality || '').slice(0, 64),
                 fatigueLevel: String(entry.restDetails?.fatigueLevel || '').slice(0, 64),
-                notes: String(entry.workoutDetails?.notes || entry.restDetails?.notes || '').slice(0, 2048),
+                shiftType: String(entry.workDetails?.shiftType || '').slice(0, 128),
+                workHours: Number(entry.workDetails?.hoursWorked || 0),
+                workFatigue: String(entry.workDetails?.fatigueLevel || '').slice(0, 64),
+                physicalStrain: String(entry.workDetails?.physicalStrain || '').slice(0, 128),
+                notes: String(entry.workoutDetails?.notes || entry.restDetails?.notes || entry.workDetails?.notes || '').slice(0, 2048),
                 createdAt: new Date().toISOString(),
               });
             });
@@ -316,8 +321,9 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
               calMap[logDate] = {
                 id: data.id || docSnap.id,
                 date: logDate,
-                type: data.type === 'rest' ? 'rest' : 'workout',
-                workoutDetails: data.type === 'workout' ? {
+                type: data.type === 'rest' ? 'rest' : data.type === 'work' ? 'work' : 'workout',
+                isWorkDay: Boolean(data.isWorkDay || data.type === 'work'),
+                workoutDetails: (data.type === 'workout' || data.completedSets > 0) ? {
                   workoutName: data.workoutName || '',
                   workoutIntensity: data.workoutIntensity || '',
                   durationMinutes: data.durationMinutes || 0,
@@ -331,6 +337,13 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   sleepQuality: data.sleepQuality,
                   fatigueLevel: data.fatigueLevel,
                   notes: data.notes,
+                } : undefined,
+                workDetails: (data.type === 'work' || data.isWorkDay || data.workHours > 0) ? {
+                  shiftType: data.shiftType || 'Standard Shift',
+                  hoursWorked: data.workHours || 8,
+                  fatigueLevel: data.workFatigue || 'Moderate Drain (3/5)',
+                  physicalStrain: data.physicalStrain || 'Standing / Movement',
+                  notes: data.notes || '',
                 } : undefined,
                 createdAt: data.createdAt,
               };
@@ -528,7 +541,8 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
         id: cleanId,
         userId: user.uid,
         date: log.date,
-        type: log.type === 'rest' ? 'rest' : 'workout',
+        type: log.type === 'rest' ? 'rest' : log.type === 'work' ? 'work' : 'workout',
+        isWorkDay: Boolean(log.isWorkDay || log.type === 'work'),
         workoutName: String(log.workoutDetails?.workoutName || '').slice(0, 256),
         workoutIntensity: String(log.workoutDetails?.workoutIntensity || '').slice(0, 128),
         durationMinutes: Number(log.workoutDetails?.durationMinutes || 0),
@@ -538,7 +552,11 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
         restType: String(log.restDetails?.restType || '').slice(0, 64),
         sleepQuality: String(log.restDetails?.sleepQuality || '').slice(0, 64),
         fatigueLevel: String(log.restDetails?.fatigueLevel || '').slice(0, 64),
-        notes: String(log.workoutDetails?.notes || log.restDetails?.notes || '').slice(0, 2048),
+        shiftType: String(log.workDetails?.shiftType || '').slice(0, 128),
+        workHours: Number(log.workDetails?.hoursWorked || 0),
+        workFatigue: String(log.workDetails?.fatigueLevel || '').slice(0, 64),
+        physicalStrain: String(log.workDetails?.physicalStrain || '').slice(0, 128),
+        notes: String(log.workoutDetails?.notes || log.restDetails?.notes || log.workDetails?.notes || '').slice(0, 2048),
         createdAt: new Date().toISOString(),
       });
       setSyncStatus('synced');
