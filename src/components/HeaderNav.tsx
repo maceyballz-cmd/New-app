@@ -2,6 +2,7 @@ import React from 'react';
 import { Printer, Play, Volume2, VolumeX, Flame } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { CloudSyncButton } from './CloudSyncButton';
+import { UserAuthButton } from './UserAuthButton';
 
 interface HeaderNavProps {
   activeTab: 'overview' | 'workout' | 'cheatsheet' | 'exercises' | 'roadmap' | 'calculator' | 'transformation';
@@ -45,6 +46,8 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
 
           {/* Quick Action Controls */}
           <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+            {/* Log In / User Account Button */}
+            <UserAuthButton />
             {/* Cloud Sync Button */}
             <CloudSyncButton />
             {/* Download for Desktop App Button */}
