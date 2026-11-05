@@ -9,7 +9,15 @@ import {
   onSnapshot,
   writeBatch,
 } from 'firebase/firestore';
-import { auth, db, loginWithGoogle, logoutUser, handleFirestoreError, OperationType } from '../lib/firebase';
+import {
+  auth,
+  db,
+  loginWithGoogle,
+  loginWithGoogleRedirect,
+  logoutUser,
+  handleFirestoreError,
+  OperationType,
+} from '../lib/firebase';
 import { WeeklyProgressEntry, getStoredTransformationData, saveStoredTransformationData } from '../data/transformationData';
 import { CalendarDayLog } from '../components/WorkoutCalendarView';
 import { WorkoutType, WorkoutProgram, getWorkoutProgram, saveWorkoutProgram } from '../data/programData';
@@ -33,14 +41,24 @@ interface SyncStats {
   hasTransformation: boolean;
 }
 
+export interface LoginErrorInfo {
+  code: string;
+  message: string;
+  domain: string;
+}
+
 interface SyncContextType {
   user: User | null;
   authLoading: boolean;
+  isLoggingIn: boolean;
   syncStatus: SyncStatus;
   lastSyncedAt: Date | null;
   errorMessage: string | null;
+  loginError: LoginErrorInfo | null;
+  clearLoginError: () => void;
   stats: SyncStats;
   login: () => Promise<void>;
+  loginWithRedirect: () => Promise<void>;
   logout: () => Promise<void>;
   syncNow: () => Promise<void>;
   saveWorkoutLogToCloud: (log: LogEntry) => Promise<void>;
@@ -56,14 +74,21 @@ const SyncContext = createContext<SyncContextType | null>(null);
 export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [loginError, setLoginError] = useState<LoginErrorInfo | null>(null);
   const [stats, setStats] = useState<SyncStats>({
     workoutLogsCount: 0,
     calendarLogsCount: 0,
     hasTransformation: false,
   });
+
+  const clearLoginError = useCallback(() => {
+    setLoginError(null);
+    setErrorMessage(null);
+  }, []);
 
   // Track if we are currently applying remote updates to avoid circular loops
   const isApplyingRemoteRef = useRef<boolean>(false);
@@ -671,12 +696,47 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const login = async () => {
+    if (isLoggingIn) return;
+    setIsLoggingIn(true);
+    setErrorMessage(null);
+    setLoginError(null);
     try {
-      setErrorMessage(null);
       await loginWithGoogle();
+      setLoginError(null);
     } catch (err: any) {
       console.error('Login error:', err);
-      setErrorMessage(err?.message || 'Login failed');
+      const code = err?.code || 'auth/unknown';
+      const message = err?.message || 'Login failed';
+      const currentDomain = typeof window !== 'undefined' ? window.location.hostname : '';
+      setErrorMessage(message);
+      setLoginError({
+        code,
+        message,
+        domain: currentDomain,
+      });
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const loginWithRedirect = async () => {
+    setIsLoggingIn(true);
+    setErrorMessage(null);
+    setLoginError(null);
+    try {
+      await loginWithGoogleRedirect();
+    } catch (err: any) {
+      console.error('Login redirect error:', err);
+      const code = err?.code || 'auth/unknown';
+      const message = err?.message || 'Redirect login failed';
+      const currentDomain = typeof window !== 'undefined' ? window.location.hostname : '';
+      setErrorMessage(message);
+      setLoginError({
+        code,
+        message,
+        domain: currentDomain,
+      });
+      setIsLoggingIn(false);
     }
   };
 
@@ -685,6 +745,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await logoutUser();
       setUser(null);
       setSyncStatus('idle');
+      setLoginError(null);
     } catch (err: any) {
       console.error('Logout error:', err);
     }
@@ -695,11 +756,15 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         authLoading,
+        isLoggingIn,
         syncStatus,
         lastSyncedAt,
         errorMessage,
+        loginError,
+        clearLoginError,
         stats,
         login,
+        loginWithRedirect,
         logout,
         syncNow,
         saveWorkoutLogToCloud,

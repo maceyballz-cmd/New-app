@@ -24,11 +24,15 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose 
   const {
     user,
     authLoading,
+    isLoggingIn,
+    loginError,
+    clearLoginError,
     syncStatus,
     lastSyncedAt,
     errorMessage,
     stats,
     login,
+    loginWithRedirect,
     logout,
     syncNow,
   } = useSync();
@@ -193,20 +197,48 @@ export const CloudSyncModal: React.FC<CloudSyncModalProps> = ({ isOpen, onClose 
               </div>
 
               {errorMessage && (
-                <div className="text-xs text-red-600 bg-red-50 p-2.5 rounded-lg border border-red-200 flex items-center gap-1.5 justify-center">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{errorMessage}</span>
+                <div className="text-xs text-red-700 bg-red-50 p-2.5 rounded-lg border border-red-200 text-left space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                    <span>Authentication Notice</span>
+                  </div>
+                  <p className="text-[11px] text-red-600">{errorMessage}</p>
+                  {loginError?.code === 'auth/unauthorized-domain' && (
+                    <p className="text-[10px] text-slate-600 pt-1 border-t border-red-200/60">
+                      Domain <strong>{loginError.domain}</strong> needs to be whitelisted in Firebase Console Authorized Domains.
+                    </p>
+                  )}
                 </div>
               )}
 
-              <button
-                onClick={login}
-                disabled={authLoading}
-                className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2 hover:shadow active:scale-99 disabled:opacity-50"
-              >
-                <LogIn className="w-4 h-4" />
-                <span>Sign in with Google</span>
-              </button>
+              <div className="space-y-2">
+                <button
+                  onClick={login}
+                  disabled={authLoading || isLoggingIn}
+                  className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2 hover:shadow active:scale-99 disabled:opacity-50"
+                >
+                  {isLoggingIn ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Connecting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <LogIn className="w-4 h-4" />
+                      <span>Sign in with Google (Popup)</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  onClick={() => loginWithRedirect()}
+                  disabled={authLoading || isLoggingIn}
+                  className="w-full py-2 px-3 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  title="Use if popups are closed or blocked by browser settings"
+                >
+                  <span>Sign in with Full-Page Redirect</span>
+                </button>
+              </div>
             </div>
           )}
 

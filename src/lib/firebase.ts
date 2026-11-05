@@ -1,5 +1,16 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import {
+  initializeApp
+} from 'firebase/app';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  signOut,
+  onAuthStateChanged,
+  User
+} from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -76,6 +87,20 @@ export async function loginWithGoogle(): Promise<User> {
   return result.user;
 }
 
+export async function loginWithGoogleRedirect(): Promise<void> {
+  await signInWithRedirect(auth, googleProvider);
+}
+
+// Check for redirect result on initialization
+if (typeof window !== 'undefined') {
+  getRedirectResult(auth).catch((error) => {
+    if (error && error.code) {
+      console.warn('Firebase getRedirectResult error:', error.code, error.message);
+    }
+  });
+}
+
 export async function logoutUser(): Promise<void> {
   await signOut(auth);
 }
+

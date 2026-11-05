@@ -1,10 +1,22 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { LogIn, LogOut, User as UserIcon, ChevronDown, CheckCircle2, RefreshCw, Cloud } from 'lucide-react';
+import { LogIn, LogOut, User as UserIcon, ChevronDown, CheckCircle2, RefreshCw, Cloud, AlertCircle } from 'lucide-react';
 import { useSync } from '../context/SyncContext';
 import { CloudSyncModal } from './CloudSyncModal';
+import { AuthHelpModal } from './AuthHelpModal';
 
 export const UserAuthButton: React.FC = () => {
-  const { user, authLoading, login, logout, syncStatus, lastSyncedAt, syncNow } = useSync();
+  const {
+    user,
+    authLoading,
+    isLoggingIn,
+    loginError,
+    clearLoginError,
+    login,
+    logout,
+    syncStatus,
+    lastSyncedAt,
+    syncNow,
+  } = useSync();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -33,17 +45,34 @@ export const UserAuthButton: React.FC = () => {
     );
   }
 
-  // Not logged in: Show prominent "Log In" button
+  // Not logged in: Show prominent "Log In" button with loading state and error modal
   if (!user) {
     return (
-      <button
-        onClick={login}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-800 bg-white hover:bg-blue-50/60 hover:text-blue-700 border border-slate-200 hover:border-blue-300 rounded-lg shadow-2xs transition-all cursor-pointer whitespace-nowrap active:scale-98"
-        title="Log in with Google to synchronize your workouts and progress"
-      >
-        <LogIn className="w-3.5 h-3.5 text-blue-600" />
-        <span>Log In</span>
-      </button>
+      <>
+        <button
+          onClick={login}
+          disabled={isLoggingIn}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-800 bg-white hover:bg-blue-50/60 hover:text-blue-700 border border-slate-200 hover:border-blue-300 rounded-lg shadow-2xs transition-all cursor-pointer whitespace-nowrap active:scale-98 disabled:opacity-75 disabled:cursor-wait"
+          title={isLoggingIn ? 'Opening Google sign-in...' : 'Log in with Google to synchronize your workouts and progress'}
+        >
+          {isLoggingIn ? (
+            <>
+              <RefreshCw className="w-3.5 h-3.5 text-blue-600 animate-spin" />
+              <span>Connecting...</span>
+            </>
+          ) : (
+            <>
+              <LogIn className="w-3.5 h-3.5 text-blue-600" />
+              <span>Log In</span>
+            </>
+          )}
+        </button>
+
+        {/* If popup closes or authorization error occurs, show actionable guidance */}
+        {loginError && (
+          <AuthHelpModal error={loginError} onClose={clearLoginError} />
+        )}
+      </>
     );
   }
 
