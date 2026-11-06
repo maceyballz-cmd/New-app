@@ -52,7 +52,7 @@ service cloud.firestore {
       return data.userId == userId &&
         data.id is string && isValidId(data.id) &&
         data.date is string && data.date.size() <= 32 &&
-        (data.type == 'workout' || data.type == 'rest' || data.type == 'work') &&
+        (data.type == 'workout' || data.type == 'rest' || data.type == 'work' || data.type == 'symptom') &&
         (!('workHours' in data) || (data.workHours is number && data.workHours >= 0 && data.workHours <= 24)) &&
         (!('notes' in data) || (data.notes is string && data.notes.size() <= 2048));
     }
