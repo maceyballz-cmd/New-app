@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { WorkoutProgram, WorkoutType, getWorkoutProgram } from '../data/programData';
 
-export type DayLogType = 'workout' | 'rest' | 'work' | 'symptom';
+export type DayLogType = 'workout' | 'rest' | 'work' | 'symptom' | 'multi';
 
 export interface WorkoutLogData {
   workoutName: string;
@@ -68,15 +68,34 @@ export interface SymptomLogData {
 export interface CalendarDayLog {
   id: string;
   date: string; // 'YYYY-MM-DD'
-  type: DayLogType;
-  workoutDetails?: WorkoutLogData;
+  type?: DayLogType;
+  workoutDetails?: WorkoutLogData; // legacy / primary workout
+  workoutList?: WorkoutLogData[]; // array of all workouts on this day
   restDetails?: RestLogData;
   workDetails?: WorkLogData;
-  symptomDetails?: SymptomLogData;
+  symptomDetails?: SymptomLogData; // legacy / primary symptom
+  symptomList?: SymptomLogData[]; // array of all FND/symptom events on this day
   isWorkDay?: boolean;
   hasFndAttack?: boolean;
+  hasRest?: boolean;
+  hasWorkout?: boolean;
   createdAt?: string;
 }
+
+// Normalizer helpers:
+export const getDayWorkouts = (log?: CalendarDayLog): WorkoutLogData[] => {
+  if (!log) return [];
+  if (log.workoutList && log.workoutList.length > 0) return log.workoutList;
+  if (log.workoutDetails) return [log.workoutDetails];
+  return [];
+};
+
+export const getDaySymptoms = (log?: CalendarDayLog): SymptomLogData[] => {
+  if (!log) return [];
+  if (log.symptomList && log.symptomList.length > 0) return log.symptomList;
+  if (log.symptomDetails) return [log.symptomDetails];
+  return [];
+};
 
 export interface WorkoutCalendarViewProps {
   currentWorkout?: WorkoutProgram;
@@ -142,6 +161,8 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
   const [isWorkoutModalOpen, setIsWorkoutModalOpen] = useState(false);
   const [isRestModalOpen, setIsRestModalOpen] = useState(false);
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
+  const [editingWorkoutIndex, setEditingWorkoutIndex] = useState<number | null>(null);
+  const [editingSymptomIndex, setEditingSymptomIndex] = useState<number | null>(null);
   const [deleteConfirmDate, setDeleteConfirmDate] = useState<string | null>(null);
 
   // Form states for Workout Modal - pre-filled with the active routine and exercises from the program page
@@ -287,7 +308,7 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayOfWeek = new Date(year, month, 1).getDay(); // 0 = Sunday, 1 = Monday, etc.
 
-  // Summary stats for current displayed month
+  // Summary stats for current displayed month (tallies all workouts and attacks, even multiple on one day)
   const monthStats = useMemo(() => {
     let workouts = 0;
     let restDays = 0;
@@ -300,19 +321,19 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
       const dKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const log = calendarLogs[dKey];
       if (log) {
-        if (log.type === 'workout') workouts++;
-        if (log.type === 'rest') restDays++;
-        if (log.type === 'symptom' || log.hasFndAttack || log.symptomDetails) {
-          fndAttacks++;
-        }
-        if (log.type === 'work' || log.isWorkDay || log.workDetails) {
+        const wList = getDayWorkouts(log);
+        const sList = getDaySymptoms(log);
+        workouts += wList.length;
+        if (log.restDetails || log.type === 'rest' || log.hasRest) restDays++;
+        fndAttacks += sList.length;
+        if (log.workDetails || log.isWorkDay || log.type === 'work') {
           workDays++;
-          totalWorkHours += Number(log.workDetails?.hoursWorked || (log.type === 'work' ? 8 : 0));
+          totalWorkHours += Number(log.workDetails?.hoursWorked || 8);
         }
       }
     }
 
-    const totalLogged = workouts + restDays + fndAttacks;
+    const totalLogged = workouts + restDays + fndAttacks + workDays;
     const consistencyRate = Math.min(100, Math.round(((workouts + restDays) / daysInThisMonth) * 100));
 
     return { workouts, restDays, workDays, totalWorkHours, fndAttacks, totalLogged, consistencyRate };
@@ -352,24 +373,30 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
     return streak;
   }, [calendarLogs]);
 
-  // Open Log Workout modal
-  const openWorkoutModal = (dateStr?: string, editLog?: CalendarDayLog) => {
+  // Open Log Workout modal (supports adding a new workout or editing an existing workout by index)
+  const openWorkoutModal = (dateStr?: string, editIndex?: number | null) => {
     const targetDate = dateStr || selectedDateKey || todayKey;
     setWDate(targetDate);
-    if (editLog && editLog.workoutDetails) {
-      setEditingLogId(editLog.id);
-      setWName(editLog.workoutDetails.workoutName);
-      setWIntensity(editLog.workoutDetails.workoutIntensity);
-      setWDuration(editLog.workoutDetails.durationMinutes);
-      setWCompletedSets(editLog.workoutDetails.completedSets);
-      setWTotalSets(editLog.workoutDetails.totalSets);
-      setWExercises(editLog.workoutDetails.exercises || '');
-      setWRpe(editLog.workoutDetails.targetRpe);
-      setWNotes(editLog.workoutDetails.notes || '');
+    const existingLog = calendarLogs[targetDate];
+    const wList = getDayWorkouts(existingLog);
+
+    if (editIndex !== undefined && editIndex !== null && wList[editIndex]) {
+      const editW = wList[editIndex];
+      setEditingLogId(existingLog?.id || null);
+      setEditingWorkoutIndex(editIndex);
+      setWName(editW.workoutName);
+      setWIntensity(editW.workoutIntensity);
+      setWDuration(editW.durationMinutes);
+      setWCompletedSets(editW.completedSets);
+      setWTotalSets(editW.totalSets);
+      setWExercises(editW.exercises || '');
+      setWRpe(editW.targetRpe);
+      setWNotes(editW.notes || '');
     } else {
-      // Automatically pre-fill with the routine and exercises currently on the program page!
+      // Adding a new workout to this day (even if other workouts already exist!)
       const activeProg = currentWorkout || availablePrograms[0] || getWorkoutProgram('submax');
-      setEditingLogId(null);
+      setEditingLogId(existingLog?.id || null);
+      setEditingWorkoutIndex(null);
       setWName(activeProg.name);
       setWIntensity(activeProg.intensityLabel);
       setWDuration(getDurationMinsFromWorkout(activeProg));
@@ -417,12 +444,13 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
   const openRestModal = (dateStr?: string, editLog?: CalendarDayLog) => {
     const targetDate = dateStr || selectedDateKey || todayKey;
     setRDate(targetDate);
-    if (editLog && editLog.restDetails) {
-      setEditingLogId(editLog.id);
-      setRType(editLog.restDetails.restType);
-      setRSleep(editLog.restDetails.sleepQuality || 'Good (7-8 hrs)');
-      setRFatigue(editLog.restDetails.fatigueLevel || 'Fresh & Ready (1/5)');
-      setRNotes(editLog.restDetails.notes || '');
+    const existing = editLog || calendarLogs[targetDate];
+    if (existing && existing.restDetails) {
+      setEditingLogId(existing.id);
+      setRType(existing.restDetails.restType);
+      setRSleep(existing.restDetails.sleepQuality || 'Good (7-8 hrs)');
+      setRFatigue(existing.restDetails.fatigueLevel || 'Fresh & Ready (1/5)');
+      setRNotes(existing.restDetails.notes || '');
     } else {
       setEditingLogId(null);
       setRType('Full Rest');
@@ -458,21 +486,27 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
     setIsWorkModalOpen(true);
   };
 
-  // Open Log High Symptom / FND Attack modal
-  const openSymptomModal = (dateStr?: string, editLog?: CalendarDayLog) => {
+  // Open Log High Symptom / FND Attack modal (supports adding a new attack or editing by index)
+  const openSymptomModal = (dateStr?: string, editIndex?: number | null) => {
     const targetDate = dateStr || selectedDateKey || todayKey;
     setSymptomDate(targetDate);
-    const existing = editLog || calendarLogs[targetDate];
-    if (existing && existing.symptomDetails) {
-      setEditingLogId(existing.id);
-      setSymptomSeverity(existing.symptomDetails.severity || 'Severe Attack / Major Flare');
-      setSymptomAttackType(existing.symptomDetails.attackType || 'Limb Weakness & Motor Control Loss');
-      setSymptomDuration(existing.symptomDetails.duration || '1 - 2 Hours');
-      setSymptomTriggers(existing.symptomDetails.triggers || 'Workout Overexertion / High Strain');
-      setSymptomWorkoutImpact(existing.symptomDetails.workoutImpact || 'No workout possible (Bed rest & safety)');
-      setSymptomNotes(existing.symptomDetails.notes || '');
+    const existingLog = calendarLogs[targetDate];
+    const sList = getDaySymptoms(existingLog);
+
+    if (editIndex !== undefined && editIndex !== null && sList[editIndex]) {
+      const editS = sList[editIndex];
+      setEditingLogId(existingLog?.id || null);
+      setEditingSymptomIndex(editIndex);
+      setSymptomSeverity(editS.severity || 'Severe Attack / Major Flare');
+      setSymptomAttackType(editS.attackType || 'Limb Weakness & Motor Control Loss');
+      setSymptomDuration(editS.duration || '1 - 2 Hours');
+      setSymptomTriggers(editS.triggers || 'Workout Overexertion / High Strain');
+      setSymptomWorkoutImpact(editS.workoutImpact || 'No workout possible (Bed rest & safety)');
+      setSymptomNotes(editS.notes || '');
     } else {
-      setEditingLogId(null);
+      // Adding a new FND attack to this day!
+      setEditingLogId(existingLog?.id || null);
+      setEditingSymptomIndex(null);
       setSymptomSeverity('Severe Attack / Major Flare');
       setSymptomAttackType('Limb Weakness & Motor Control Loss');
       setSymptomDuration('1 - 2 Hours');
@@ -562,30 +596,53 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
     return { title, explanation, recommendation };
   };
 
-  // Save Workout Submission
+  // Save Workout Submission (supports multiple workouts on the same day!)
   const handleSaveWorkout = (e: React.FormEvent) => {
     e.preventDefault();
     if (!wDate) return;
 
     const existingLog = calendarLogs[wDate];
+    const currentWorkouts = [...getDayWorkouts(existingLog)];
+
+    const newWorkout: WorkoutLogData = {
+      workoutName: wName,
+      workoutIntensity: wIntensity,
+      durationMinutes: Number(wDuration) || 45,
+      completedSets: Number(wCompletedSets) || 18,
+      totalSets: Number(wTotalSets) || 18,
+      exercises: wExercises,
+      targetRpe: wRpe,
+      notes: wNotes,
+    };
+
+    if (editingWorkoutIndex !== null && editingWorkoutIndex >= 0 && editingWorkoutIndex < currentWorkouts.length) {
+      currentWorkouts[editingWorkoutIndex] = newWorkout;
+    } else {
+      currentWorkouts.push(newWorkout);
+    }
+
+    const currentSymptoms = getDaySymptoms(existingLog);
+    const hasWork = Boolean(existingLog?.workDetails || existingLog?.isWorkDay);
+    const hasRest = Boolean(existingLog?.restDetails);
+    const hasSymptoms = currentSymptoms.length > 0 || Boolean(existingLog?.hasFndAttack);
+
+    const hasMulti = currentWorkouts.length > 1 || hasWork || hasRest || hasSymptoms;
+    const type: DayLogType = hasMulti ? 'multi' : 'workout';
+
     const newLog: CalendarDayLog = {
-      id: editingLogId || existingLog?.id || `cal-${Date.now()}`,
+      id: existingLog?.id || `cal-${Date.now()}`,
       date: wDate,
-      type: 'workout',
-      isWorkDay: existingLog?.isWorkDay,
+      type,
+      workoutList: currentWorkouts,
+      workoutDetails: currentWorkouts[0],
+      restDetails: existingLog?.restDetails,
       workDetails: existingLog?.workDetails,
-      hasFndAttack: existingLog?.hasFndAttack,
-      symptomDetails: existingLog?.symptomDetails,
-      workoutDetails: {
-        workoutName: wName,
-        workoutIntensity: wIntensity,
-        durationMinutes: Number(wDuration) || 45,
-        completedSets: Number(wCompletedSets) || 18,
-        totalSets: Number(wTotalSets) || 18,
-        exercises: wExercises,
-        targetRpe: wRpe,
-        notes: wNotes,
-      },
+      isWorkDay: hasWork,
+      hasFndAttack: hasSymptoms,
+      symptomDetails: currentSymptoms[0] || existingLog?.symptomDetails,
+      symptomList: currentSymptoms.length > 0 ? currentSymptoms : undefined,
+      hasWorkout: true,
+      hasRest,
       createdAt: existingLog?.createdAt || new Date().toISOString(),
     };
 
@@ -593,11 +650,10 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
     saveCalendarLogs(updated);
     saveCalendarLogToCloud(newLog);
 
-    // Also sync with planche_workout_history so the history list right above reflects this manual workout!
+    // Sync with workout history so the history list right above reflects this workout
     try {
       const rawHistory = localStorage.getItem(STORAGE_WORKOUT_HISTORY_KEY);
       const historyList: any[] = rawHistory ? JSON.parse(rawHistory) : [];
-      // Create a matching history entry
       const historyEntry = {
         date: new Date(`${wDate}T12:00:00`).toISOString(),
         completedSets: Number(wCompletedSets) || 18,
@@ -608,14 +664,7 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
         workoutName: wName,
         workoutIntensity: wIntensity,
       };
-
-      // Check if entry for this date already exists in history
-      const existingIdx = historyList.findIndex((h) => formatDateToKey(new Date(h.date)) === wDate);
-      if (existingIdx >= 0) {
-        historyList[existingIdx] = historyEntry;
-      } else {
-        historyList.unshift(historyEntry);
-      }
+      historyList.unshift(historyEntry);
       localStorage.setItem(STORAGE_WORKOUT_HISTORY_KEY, JSON.stringify(historyList));
       window.dispatchEvent(new Event('planche_history_updated'));
     } catch (err) {
@@ -623,23 +672,38 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
     }
 
     setIsWorkoutModalOpen(false);
+    setEditingWorkoutIndex(null);
     setSelectedDateKey(wDate);
   };
 
-  // Save Rest Day Submission
+  // Save Rest Day Submission (preserves existing workouts, work, and symptoms on the day!)
   const handleSaveRest = (e: React.FormEvent) => {
     e.preventDefault();
     if (!rDate) return;
 
     const existingLog = calendarLogs[rDate];
+    const currentWorkouts = getDayWorkouts(existingLog);
+    const currentSymptoms = getDaySymptoms(existingLog);
+    const hasWork = Boolean(existingLog?.workDetails || existingLog?.isWorkDay);
+    const hasWorkout = currentWorkouts.length > 0;
+    const hasSymptoms = currentSymptoms.length > 0 || Boolean(existingLog?.hasFndAttack);
+
+    const hasMulti = hasWorkout || hasWork || hasSymptoms;
+    const type: DayLogType = hasMulti ? 'multi' : 'rest';
+
     const newLog: CalendarDayLog = {
-      id: editingLogId || `cal-rest-${Date.now()}`,
+      id: existingLog?.id || `cal-rest-${Date.now()}`,
       date: rDate,
-      type: 'rest',
-      isWorkDay: existingLog?.isWorkDay,
+      type,
+      workoutList: existingLog?.workoutList,
+      workoutDetails: existingLog?.workoutDetails,
       workDetails: existingLog?.workDetails,
-      hasFndAttack: existingLog?.hasFndAttack,
+      isWorkDay: hasWork,
+      hasFndAttack: hasSymptoms,
       symptomDetails: existingLog?.symptomDetails,
+      symptomList: existingLog?.symptomList,
+      hasWorkout,
+      hasRest: true,
       restDetails: {
         restType: rType,
         sleepQuality: rSleep,
@@ -656,21 +720,34 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
     setSelectedDateKey(rDate);
   };
 
-  // Save Work Day Submission
+  // Save Work Day Submission (preserves existing workouts, rest, and symptoms on the day!)
   const handleSaveWork = (e: React.FormEvent) => {
     e.preventDefault();
     if (!workDate) return;
 
     const existingLog = calendarLogs[workDate];
+    const currentWorkouts = getDayWorkouts(existingLog);
+    const currentSymptoms = getDaySymptoms(existingLog);
+    const hasRest = Boolean(existingLog?.restDetails);
+    const hasWorkout = currentWorkouts.length > 0;
+    const hasSymptoms = currentSymptoms.length > 0 || Boolean(existingLog?.hasFndAttack);
+
+    const hasMulti = hasWorkout || hasRest || hasSymptoms;
+    const type: DayLogType = hasMulti ? 'multi' : 'work';
+
     const newLog: CalendarDayLog = {
-      id: editingLogId || existingLog?.id || `cal-work-${Date.now()}`,
+      id: existingLog?.id || `cal-work-${Date.now()}`,
       date: workDate,
-      type: existingLog?.workoutDetails ? 'workout' : existingLog?.symptomDetails ? 'symptom' : 'work',
+      type,
       isWorkDay: true,
-      hasFndAttack: existingLog?.hasFndAttack,
-      symptomDetails: existingLog?.symptomDetails,
+      workoutList: existingLog?.workoutList,
       workoutDetails: existingLog?.workoutDetails,
-      restDetails: existingLog?.type === 'rest' ? existingLog.restDetails : undefined,
+      restDetails: existingLog?.restDetails,
+      hasWorkout,
+      hasRest,
+      hasFndAttack: hasSymptoms,
+      symptomDetails: existingLog?.symptomDetails,
+      symptomList: existingLog?.symptomList,
       workDetails: {
         shiftType: workShiftType,
         hoursWorked: Number(workHours) || 8,
@@ -689,29 +766,51 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
     setSelectedDateKey(workDate);
   };
 
-  // Save High Symptom / FND Attack Submission
+  // Save High Symptom / FND Attack Submission (supports multiple attacks and preserves workouts/rest/work!)
   const handleSaveSymptom = (e: React.FormEvent) => {
     e.preventDefault();
     if (!symptomDate) return;
 
     const existingLog = calendarLogs[symptomDate];
+    const currentSymptoms = [...getDaySymptoms(existingLog)];
+
+    const newSymptom: SymptomLogData = {
+      severity: symptomSeverity,
+      attackType: symptomAttackType,
+      duration: symptomDuration,
+      triggers: symptomTriggers,
+      workoutImpact: symptomWorkoutImpact,
+      notes: symptomNotes,
+    };
+
+    if (editingSymptomIndex !== null && editingSymptomIndex >= 0 && editingSymptomIndex < currentSymptoms.length) {
+      currentSymptoms[editingSymptomIndex] = newSymptom;
+    } else {
+      currentSymptoms.push(newSymptom);
+    }
+
+    const currentWorkouts = getDayWorkouts(existingLog);
+    const hasWork = Boolean(existingLog?.workDetails || existingLog?.isWorkDay);
+    const hasRest = Boolean(existingLog?.restDetails);
+    const hasWorkout = currentWorkouts.length > 0;
+
+    const hasMulti = currentSymptoms.length > 1 || hasWorkout || hasWork || hasRest;
+    const type: DayLogType = hasMulti ? 'multi' : 'symptom';
+
     const newLog: CalendarDayLog = {
-      id: editingLogId || existingLog?.id || `cal-symptom-${Date.now()}`,
+      id: existingLog?.id || `cal-symptom-${Date.now()}`,
       date: symptomDate,
-      type: existingLog?.workoutDetails ? 'workout' : existingLog?.workDetails ? 'work' : existingLog?.type === 'rest' ? 'rest' : 'symptom',
+      type,
       hasFndAttack: true,
-      isWorkDay: existingLog?.isWorkDay,
+      symptomList: currentSymptoms,
+      symptomDetails: currentSymptoms[0],
+      workoutList: existingLog?.workoutList,
       workoutDetails: existingLog?.workoutDetails,
       restDetails: existingLog?.restDetails,
       workDetails: existingLog?.workDetails,
-      symptomDetails: {
-        severity: symptomSeverity,
-        attackType: symptomAttackType,
-        duration: symptomDuration,
-        triggers: symptomTriggers,
-        workoutImpact: symptomWorkoutImpact,
-        notes: symptomNotes,
-      },
+      isWorkDay: hasWork,
+      hasWorkout,
+      hasRest,
       createdAt: existingLog?.createdAt || new Date().toISOString(),
     };
 
@@ -719,85 +818,124 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
     saveCalendarLogs(updated);
     saveCalendarLogToCloud(newLog);
     setIsSymptomModalOpen(false);
+    setEditingSymptomIndex(null);
     setSelectedDateKey(symptomDate);
+  };
+
+  // Delete single workout item by index
+  const handleDeleteWorkoutItem = (targetDate: string, index: number) => {
+    const existing = calendarLogs[targetDate];
+    if (!existing) return;
+    const current = [...getDayWorkouts(existing)];
+    current.splice(index, 1);
+
+    const symptoms = getDaySymptoms(existing);
+    const hasWork = Boolean(existing.workDetails || existing.isWorkDay);
+    const hasRest = Boolean(existing.restDetails);
+
+    if (current.length === 0 && !hasWork && !hasRest && symptoms.length === 0) {
+      handleDeleteDateLog(targetDate);
+      return;
+    }
+
+    const hasMulti = current.length > 1 || (current.length > 0 && (hasWork || hasRest || symptoms.length > 0)) || (hasWork && hasRest) || (hasWork && symptoms.length > 0) || (hasRest && symptoms.length > 0);
+    const newType: DayLogType = hasMulti ? 'multi' : current.length > 0 ? 'workout' : hasWork ? 'work' : hasRest ? 'rest' : 'symptom';
+
+    const updatedLog: CalendarDayLog = {
+      ...existing,
+      workoutList: current.length > 0 ? current : undefined,
+      workoutDetails: current[0],
+      hasWorkout: current.length > 0,
+      type: newType,
+    };
+    const updated = { ...calendarLogs, [targetDate]: updatedLog };
+    saveCalendarLogs(updated);
+    saveCalendarLogToCloud(updatedLog);
+  };
+
+  // Delete single symptom item by index
+  const handleDeleteSymptomItem = (targetDate: string, index: number) => {
+    const existing = calendarLogs[targetDate];
+    if (!existing) return;
+    const current = [...getDaySymptoms(existing)];
+    current.splice(index, 1);
+
+    const workouts = getDayWorkouts(existing);
+    const hasWork = Boolean(existing.workDetails || existing.isWorkDay);
+    const hasRest = Boolean(existing.restDetails);
+
+    if (current.length === 0 && workouts.length === 0 && !hasWork && !hasRest) {
+      handleDeleteDateLog(targetDate);
+      return;
+    }
+
+    const hasMulti = current.length > 1 || (current.length > 0 && (workouts.length > 0 || hasWork || hasRest)) || (workouts.length > 0 && (hasWork || hasRest)) || (hasWork && hasRest);
+    const newType: DayLogType = hasMulti ? 'multi' : current.length > 0 ? 'symptom' : workouts.length > 0 ? 'workout' : hasWork ? 'work' : 'rest';
+
+    const updatedLog: CalendarDayLog = {
+      ...existing,
+      symptomList: current.length > 0 ? current : undefined,
+      symptomDetails: current[0],
+      hasFndAttack: current.length > 0,
+      type: newType,
+    };
+    const updated = { ...calendarLogs, [targetDate]: updatedLog };
+    saveCalendarLogs(updated);
+    saveCalendarLogToCloud(updatedLog);
+  };
+
+  // Delete only rest details for a date
+  const handleDeleteRestOnly = (targetDate: string) => {
+    const existing = calendarLogs[targetDate];
+    if (!existing) return;
+    const workouts = getDayWorkouts(existing);
+    const symptoms = getDaySymptoms(existing);
+    const hasWork = Boolean(existing.workDetails || existing.isWorkDay);
+
+    if (workouts.length === 0 && symptoms.length === 0 && !hasWork) {
+      handleDeleteDateLog(targetDate);
+      return;
+    }
+
+    const hasMulti = workouts.length > 1 || symptoms.length > 1 || (workouts.length > 0 && (symptoms.length > 0 || hasWork)) || (symptoms.length > 0 && hasWork);
+    const newType: DayLogType = hasMulti ? 'multi' : workouts.length > 0 ? 'workout' : hasWork ? 'work' : 'symptom';
+
+    const updatedLog: CalendarDayLog = {
+      ...existing,
+      restDetails: undefined,
+      hasRest: false,
+      type: newType,
+    };
+    const updated = { ...calendarLogs, [targetDate]: updatedLog };
+    saveCalendarLogs(updated);
+    saveCalendarLogToCloud(updatedLog);
   };
 
   // Delete only work details for a date
   const handleDeleteWorkOnly = (targetDate: string) => {
     const existing = calendarLogs[targetDate];
     if (!existing) return;
-    if (existing.workoutDetails) {
-      const updatedLog: CalendarDayLog = {
-        ...existing,
-        type: 'workout',
-        isWorkDay: false,
-        workDetails: undefined,
-      };
-      const updated = { ...calendarLogs, [targetDate]: updatedLog };
-      saveCalendarLogs(updated);
-      saveCalendarLogToCloud(updatedLog);
-    } else if (existing.symptomDetails) {
-      const updatedLog: CalendarDayLog = {
-        ...existing,
-        type: 'symptom',
-        isWorkDay: false,
-        workDetails: undefined,
-      };
-      const updated = { ...calendarLogs, [targetDate]: updatedLog };
-      saveCalendarLogs(updated);
-      saveCalendarLogToCloud(updatedLog);
-    } else if (existing.restDetails) {
-      const updatedLog: CalendarDayLog = {
-        ...existing,
-        type: 'rest',
-        isWorkDay: false,
-        workDetails: undefined,
-      };
-      const updated = { ...calendarLogs, [targetDate]: updatedLog };
-      saveCalendarLogs(updated);
-      saveCalendarLogToCloud(updatedLog);
-    } else {
-      handleDeleteDateLog(targetDate);
-    }
-  };
+    const workouts = getDayWorkouts(existing);
+    const symptoms = getDaySymptoms(existing);
+    const hasRest = Boolean(existing.restDetails);
 
-  // Delete only symptom / FND details for a date
-  const handleDeleteSymptomOnly = (targetDate: string) => {
-    const existing = calendarLogs[targetDate];
-    if (!existing) return;
-    if (existing.workoutDetails) {
-      const updatedLog: CalendarDayLog = {
-        ...existing,
-        hasFndAttack: false,
-        symptomDetails: undefined,
-        type: 'workout',
-      };
-      const updated = { ...calendarLogs, [targetDate]: updatedLog };
-      saveCalendarLogs(updated);
-      saveCalendarLogToCloud(updatedLog);
-    } else if (existing.workDetails) {
-      const updatedLog: CalendarDayLog = {
-        ...existing,
-        hasFndAttack: false,
-        symptomDetails: undefined,
-        type: 'work',
-      };
-      const updated = { ...calendarLogs, [targetDate]: updatedLog };
-      saveCalendarLogs(updated);
-      saveCalendarLogToCloud(updatedLog);
-    } else if (existing.restDetails) {
-      const updatedLog: CalendarDayLog = {
-        ...existing,
-        hasFndAttack: false,
-        symptomDetails: undefined,
-        type: 'rest',
-      };
-      const updated = { ...calendarLogs, [targetDate]: updatedLog };
-      saveCalendarLogs(updated);
-      saveCalendarLogToCloud(updatedLog);
-    } else {
+    if (workouts.length === 0 && symptoms.length === 0 && !hasRest) {
       handleDeleteDateLog(targetDate);
+      return;
     }
+
+    const hasMulti = workouts.length > 1 || symptoms.length > 1 || (workouts.length > 0 && (symptoms.length > 0 || hasRest)) || (symptoms.length > 0 && hasRest);
+    const newType: DayLogType = hasMulti ? 'multi' : workouts.length > 0 ? 'workout' : hasRest ? 'rest' : 'symptom';
+
+    const updatedLog: CalendarDayLog = {
+      ...existing,
+      workDetails: undefined,
+      isWorkDay: false,
+      type: newType,
+    };
+    const updated = { ...calendarLogs, [targetDate]: updatedLog };
+    saveCalendarLogs(updated);
+    saveCalendarLogToCloud(updatedLog);
   };
 
   // Delete log for date
@@ -1079,7 +1217,7 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
               <div
                 key={dayKey}
                 onClick={() => setSelectedDateKey(dayKey)}
-                className={`min-h-[75px] sm:min-h-[92px] p-1.5 sm:p-2 transition-all cursor-pointer relative group flex flex-col justify-between ${
+                className={`min-h-[85px] sm:min-h-[105px] p-1.5 sm:p-2 transition-all cursor-pointer relative group flex flex-col justify-between ${
                   isSelected
                     ? 'bg-blue-50/50 ring-2 ring-blue-500 ring-inset z-10'
                     : 'hover:bg-slate-50/80'
@@ -1105,7 +1243,7 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        openWorkoutModal(dayKey);
+                        openWorkoutModal(dayKey, null);
                       }}
                       title="Log workout for this day"
                       className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-blue-600 transition-opacity"
@@ -1115,99 +1253,72 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                   )}
                 </div>
 
-                {/* Day Content Badges */}
+                {/* Day Content Badges - Expandable view displaying all logs on this day */}
                 <div className="mt-1 flex-1 flex flex-col justify-end space-y-1">
-                  {log ? (
-                    log.type === 'symptom' ? (
-                      <div>
-                        <div className="bg-rose-500/10 hover:bg-rose-500/15 border border-rose-300/80 rounded-md p-1 sm:p-1.5 transition-colors">
-                          <div className="flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-rose-800 leading-tight truncate">
-                            <Zap className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0 text-rose-600" />
-                            <span className="truncate">FND Attack</span>
+                  {log ? (() => {
+                    const workouts = getDayWorkouts(log);
+                    const symptoms = getDaySymptoms(log);
+                    const hasWork = Boolean(log.workDetails || log.isWorkDay);
+                    const hasRest = Boolean(log.restDetails);
+
+                    return (
+                      <div className="space-y-1">
+                        {/* Workouts badge */}
+                        {workouts.length > 0 && (
+                          <div className="bg-blue-500/10 hover:bg-blue-500/15 border border-blue-200/80 rounded-md p-1 sm:p-1.5 transition-colors">
+                            <div className="flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-blue-700 leading-tight truncate">
+                              <Dumbbell className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
+                              <span className="truncate">
+                                {workouts.length === 1
+                                  ? (workouts[0].workoutIntensity || workouts[0].workoutName || 'Workout')
+                                  : `${workouts.length} Workouts`}
+                              </span>
+                            </div>
+                            <div className="hidden sm:block text-[9px] text-blue-600/90 font-medium truncate mt-0.5">
+                              {workouts.length === 1
+                                ? `${workouts[0].completedSets} sets · ${workouts[0].durationMinutes}m`
+                                : `${workouts.reduce((acc, w) => acc + (Number(w.completedSets) || 0), 0)} sets total`}
+                            </div>
                           </div>
-                          <div className="hidden sm:block text-[9px] text-rose-700/90 font-medium truncate mt-0.5">
-                            {log.symptomDetails?.severity?.split(' ')[0] || 'High Symptom'}
+                        )}
+
+                        {/* FND Attacks badge */}
+                        {symptoms.length > 0 && (
+                          <div className="bg-rose-500/10 hover:bg-rose-500/15 border border-rose-300/80 rounded-md p-1 sm:p-1.5 transition-colors">
+                            <div className="flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-rose-800 leading-tight truncate">
+                              <Zap className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0 text-rose-600" />
+                              <span className="truncate">
+                                {symptoms.length === 1 ? 'FND Attack' : `${symptoms.length} FND Attacks`}
+                              </span>
+                            </div>
+                            <div className="hidden sm:block text-[9px] text-rose-700/90 font-medium truncate mt-0.5">
+                              {symptoms[0]?.severity?.split(' ')[0] || 'Attack'}
+                            </div>
                           </div>
-                        </div>
-                        {log.workDetails && (
-                          <div className="mt-1 flex items-center gap-1 text-[9px] text-amber-800 bg-amber-50 border border-amber-200/80 px-1 py-0.5 rounded font-bold truncate">
-                            <Briefcase className="w-2 h-2 text-amber-600 shrink-0" />
-                            <span className="truncate">+{log.workDetails.hoursWorked}h Work</span>
+                        )}
+
+                        {/* Work Day badge */}
+                        {hasWork && (
+                          <div className="bg-amber-500/10 hover:bg-amber-500/15 border border-amber-300/80 rounded-md p-1 sm:p-1.5 transition-colors">
+                            <div className="flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-amber-800 leading-tight truncate">
+                              <Briefcase className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0 text-amber-600" />
+                              <span className="truncate">Work · {log.workDetails?.hoursWorked || 8}h</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Rest Day badge */}
+                        {hasRest && (
+                          <div className="bg-emerald-500/10 hover:bg-emerald-500/15 border border-emerald-200/80 rounded-md p-1 sm:p-1.5 transition-colors">
+                            <div className="flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-emerald-700 leading-tight truncate">
+                              <Moon className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0 text-emerald-600" />
+                              <span className="truncate">{log.restDetails?.restType || 'Rest Day'}</span>
+                            </div>
                           </div>
                         )}
                       </div>
-                    ) : log.type === 'work' ? (
-                      <div>
-                        <div className="bg-amber-500/10 hover:bg-amber-500/15 border border-amber-300/80 rounded-md p-1 sm:p-1.5 transition-colors">
-                          <div className="flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-amber-800 leading-tight truncate">
-                            <Briefcase className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0 text-amber-600" />
-                            <span className="truncate">Work · {log.workDetails?.hoursWorked || 8}h</span>
-                          </div>
-                          <div className="hidden sm:block text-[9px] text-amber-700/90 font-medium truncate mt-0.5">
-                            {log.workDetails?.fatigueLevel?.split(' ')[0] || 'Work Day'}
-                          </div>
-                        </div>
-                        {(log.hasFndAttack || log.symptomDetails) && (
-                          <div className="mt-1 flex items-center gap-1 text-[9px] text-rose-800 bg-rose-50 border border-rose-200/80 px-1 py-0.5 rounded font-bold truncate">
-                            <Zap className="w-2 h-2 text-rose-600 shrink-0" />
-                            <span className="truncate">FND Attack</span>
-                          </div>
-                        )}
-                      </div>
-                    ) : log.type === 'workout' ? (
-                      <div>
-                        <div className="bg-blue-500/10 hover:bg-blue-500/15 border border-blue-200/80 rounded-md p-1 sm:p-1.5 transition-colors">
-                          <div className="flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-blue-700 leading-tight truncate">
-                            <Dumbbell className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
-                            <span className="truncate">
-                              {log.workoutDetails?.workoutIntensity || 'Workout'}
-                            </span>
-                          </div>
-                          <div className="hidden sm:block text-[9px] text-blue-600/90 font-medium truncate mt-0.5">
-                            {log.workoutDetails?.completedSets} sets · {log.workoutDetails?.durationMinutes}m
-                          </div>
-                        </div>
-                        {(log.hasFndAttack || log.symptomDetails) && (
-                          <div className="mt-1 flex items-center gap-1 text-[9px] text-rose-800 bg-rose-50 border border-rose-200/80 px-1 py-0.5 rounded font-bold truncate">
-                            <Zap className="w-2 h-2 text-rose-600 shrink-0" />
-                            <span className="truncate">FND Attack</span>
-                          </div>
-                        )}
-                        {log.workDetails && (
-                          <div className="mt-1 flex items-center gap-1 text-[9px] text-amber-800 bg-amber-50 border border-amber-200/80 px-1 py-0.5 rounded font-bold truncate">
-                            <Briefcase className="w-2 h-2 text-amber-600 shrink-0" />
-                            <span className="truncate">+{log.workDetails.hoursWorked}h Work</span>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div>
-                        <div className="bg-emerald-500/10 hover:bg-emerald-500/15 border border-emerald-200/80 rounded-md p-1 sm:p-1.5 transition-colors">
-                          <div className="flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-emerald-700 leading-tight truncate">
-                            <Moon className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
-                            <span className="truncate">
-                              {log.restDetails?.restType || 'Rest Day'}
-                            </span>
-                          </div>
-                          <div className="hidden sm:block text-[9px] text-emerald-600/90 font-medium truncate mt-0.5">
-                            {log.restDetails?.sleepQuality?.split(' ')[0] || 'Rest'}
-                          </div>
-                        </div>
-                        {(log.hasFndAttack || log.symptomDetails) && (
-                          <div className="mt-1 flex items-center gap-1 text-[9px] text-rose-800 bg-rose-50 border border-rose-200/80 px-1 py-0.5 rounded font-bold truncate">
-                            <Zap className="w-2 h-2 text-rose-600 shrink-0" />
-                            <span className="truncate">FND Attack</span>
-                          </div>
-                        )}
-                        {log.workDetails && (
-                          <div className="mt-1 flex items-center gap-1 text-[9px] text-amber-800 bg-amber-50 border border-amber-200/80 px-1 py-0.5 rounded font-bold truncate">
-                            <Briefcase className="w-2 h-2 text-amber-600 shrink-0" />
-                            <span className="truncate">+{log.workDetails.hoursWorked}h Work</span>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  ) : null}
+                    );
+                  })() : null}
                 </div>
               </div>
             );
@@ -1232,42 +1343,29 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
               <>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (selectedLog.type === 'workout') {
-                      openWorkoutModal(selectedDateKey, selectedLog);
-                    } else if (selectedLog.type === 'work') {
-                      openWorkModal(selectedDateKey, selectedLog);
-                    } else if (selectedLog.type === 'symptom') {
-                      openSymptomModal(selectedDateKey, selectedLog);
-                    } else {
-                      openRestModal(selectedDateKey, selectedLog);
-                    }
-                  }}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                  onClick={() => openWorkoutModal(selectedDateKey)}
+                  className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-white hover:bg-blue-50 border border-blue-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                  title="Log a new workout session for this day"
                 >
-                  <Edit3 className="w-3.5 h-3.5 text-slate-500" />
-                  <span>
-                    Edit {selectedLog.type === 'symptom' ? 'FND Log' : selectedLog.type === 'work' ? 'Work Log' : selectedLog.type === 'workout' ? 'Workout' : 'Rest Log'}
-                  </span>
+                  <Dumbbell className="w-3.5 h-3.5 text-blue-600" />
+                  <span>+ Add Workout</span>
                 </button>
 
-                {!selectedLog.symptomDetails && (
-                  <button
-                    type="button"
-                    onClick={() => openSymptomModal(selectedDateKey, selectedLog)}
-                    className="px-3 py-1.5 text-xs font-semibold text-rose-900 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
-                    title="Attach high symptom or FND attack to this day"
-                  >
-                    <Zap className="w-3.5 h-3.5 text-rose-600" />
-                    <span>+ Add FND Attack</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => openSymptomModal(selectedDateKey)}
+                  className="px-3 py-1.5 text-xs font-semibold text-rose-800 bg-white hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                  title="Attach an FND attack or neurological flare to this day"
+                >
+                  <Zap className="w-3.5 h-3.5 text-rose-600" />
+                  <span>+ Add FND Attack</span>
+                </button>
 
                 {!selectedLog.workDetails && (
                   <button
                     type="button"
                     onClick={() => openWorkModal(selectedDateKey, selectedLog)}
-                    className="px-3 py-1.5 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                    className="px-3 py-1.5 text-xs font-semibold text-amber-900 bg-white hover:bg-amber-50 border border-amber-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
                     title="Mark or log work shift for this date to track fatigue impact"
                   >
                     <Briefcase className="w-3.5 h-3.5 text-amber-600" />
@@ -1275,9 +1373,21 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                   </button>
                 )}
 
+                {!selectedLog.restDetails && (
+                  <button
+                    type="button"
+                    onClick={() => openRestModal(selectedDateKey, selectedLog)}
+                    className="px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-white hover:bg-emerald-50 border border-emerald-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                    title="Mark rest & recovery protocol for this date"
+                  >
+                    <Moon className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>+ Add Rest Day</span>
+                  </button>
+                )}
+
                 {deleteConfirmDate === selectedDateKey ? (
                   <div className="flex items-center gap-1.5">
-                    <span className="text-xs text-rose-600 font-semibold">Confirm delete?</span>
+                    <span className="text-xs text-rose-600 font-semibold">Delete entire day?</span>
                     <button
                       type="button"
                       onClick={() => handleDeleteDateLog(selectedDateKey)}
@@ -1298,9 +1408,10 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                     type="button"
                     onClick={() => setDeleteConfirmDate(selectedDateKey)}
                     className="px-3 py-1.5 text-xs font-semibold text-rose-600 bg-white hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                    title="Delete all logs for this date"
                   >
                     <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                    <span>Delete</span>
+                    <span>Delete Day</span>
                   </button>
                 )}
               </>
@@ -1345,394 +1456,486 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
 
         {/* Selected Log Content */}
         <div className="mt-4">
-          {selectedLog ? (
-            <div className="space-y-4">
-              {/* Workout Details if present */}
-              {selectedLog.workoutDetails && (
-                <div className="space-y-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg bg-blue-600 text-white">
-                      <Dumbbell className="w-3.5 h-3.5" />
-                      <span>Workout Completed</span>
-                    </span>
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-800">
-                      {selectedLog.workoutDetails.workoutName}
-                    </span>
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200 text-blue-700">
-                      {selectedLog.workoutDetails.workoutIntensity}
-                    </span>
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-700">
-                      {selectedLog.workoutDetails.targetRpe}
-                    </span>
-                  </div>
+          {selectedLog ? (() => {
+            const dayWorkouts = getDayWorkouts(selectedLog);
+            const daySymptoms = getDaySymptoms(selectedLog);
+            const hasWork = Boolean(selectedLog.workDetails);
+            const hasRest = Boolean(selectedLog.restDetails);
 
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    <div className="bg-white p-3 rounded-xl border border-slate-200">
-                      <div className="text-[11px] text-slate-500 font-medium">Sets Completed</div>
-                      <div className="text-sm font-bold text-slate-900 mt-0.5">
-                        {selectedLog.workoutDetails.completedSets} / {selectedLog.workoutDetails.totalSets} sets
-                      </div>
-                    </div>
-                    <div className="bg-white p-3 rounded-xl border border-slate-200">
-                      <div className="text-[11px] text-slate-500 font-medium">Session Duration</div>
-                      <div className="text-sm font-bold text-slate-900 mt-0.5">
-                        {selectedLog.workoutDetails.durationMinutes} minutes
-                      </div>
-                    </div>
-                    <div className="bg-white p-3 rounded-xl border border-slate-200 col-span-2 sm:col-span-1">
-                      <div className="text-[11px] text-slate-500 font-medium">Completion Rate</div>
-                      <div className="text-sm font-bold text-emerald-600 mt-0.5 flex items-center gap-1">
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>
-                          {Math.round(
-                            ((selectedLog.workoutDetails.completedSets || 1) /
-                              (selectedLog.workoutDetails.totalSets || 1)) *
-                              100
-                          )}
-                          % Achieved
+            return (
+              <div className="space-y-5">
+                {/* Multi-log summary pill bar */}
+                <div className="flex flex-wrap items-center gap-2 p-2.5 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1">
+                    Activity Summary:
+                  </span>
+                  {dayWorkouts.length > 0 && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-50 border border-blue-200 text-blue-700">
+                      <Dumbbell className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{dayWorkouts.length} Workout{dayWorkouts.length > 1 ? 's' : ''} ({dayWorkouts.reduce((acc, w) => acc + (w.completedSets || 0), 0)} sets)</span>
+                    </span>
+                  )}
+                  {hasWork && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg bg-amber-50 border border-amber-200 text-amber-800">
+                      <Briefcase className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Work Shift ({selectedLog.workDetails?.hoursWorked}h)</span>
+                    </span>
+                  )}
+                  {hasRest && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800">
+                      <Moon className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>{selectedLog.restDetails?.restType}</span>
+                    </span>
+                  )}
+                  {daySymptoms.length > 0 && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg bg-rose-50 border border-rose-200 text-rose-800">
+                      <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
+                      <span>{daySymptoms.length} FND Attack{daySymptoms.length > 1 ? 's' : ''}</span>
+                    </span>
+                  )}
+                </div>
+
+                {/* 1. Workout Sessions List */}
+                {dayWorkouts.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg bg-blue-600 text-white shadow-2xs">
+                          <Dumbbell className="w-3.5 h-3.5" />
+                          <span>Workouts ({dayWorkouts.length})</span>
+                        </span>
+                        <span className="text-xs text-slate-500 font-medium hidden sm:inline">
+                          Calisthenics strength & skill sessions
                         </span>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => openWorkoutModal(selectedDateKey)}
+                        className="text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Another Session</span>
+                      </button>
                     </div>
-                  </div>
 
-                  {selectedLog.workoutDetails.exercises && (
-                    <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-1">
-                      <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                        Exercises Performed
-                      </div>
-                      <div className="text-xs text-slate-700 leading-relaxed">
-                        {selectedLog.workoutDetails.exercises}
-                      </div>
-                    </div>
-                  )}
-
-                  {selectedLog.workoutDetails.notes && (
-                    <div className="bg-blue-50/60 p-3.5 rounded-xl border border-blue-100 space-y-1">
-                      <div className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-blue-900">
-                        <FileText className="w-3.5 h-3.5 text-blue-600" />
-                        <span>Athlete Biofeedback & Session Notes</span>
-                      </div>
-                      <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed italic">
-                        "{selectedLog.workoutDetails.notes}"
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Rest Details if present and not a pure workout */}
-              {selectedLog.restDetails && !selectedLog.workoutDetails && (
-                <div className="space-y-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg bg-emerald-600 text-white">
-                      <Moon className="w-3.5 h-3.5" />
-                      <span>Rest & Recovery Day</span>
-                    </span>
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-800">
-                      {selectedLog.restDetails.restType}
-                    </span>
-                    {selectedLog.restDetails.sleepQuality && (
-                      <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700">
-                        Sleep: {selectedLog.restDetails.sleepQuality}
-                      </span>
-                    )}
-                    {selectedLog.restDetails.fatigueLevel && (
-                      <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-700">
-                        Status: {selectedLog.restDetails.fatigueLevel}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-2">
-                    <div className="text-xs text-slate-600 leading-relaxed">
-                      {selectedLog.restDetails.restType === 'Full Rest' &&
-                        'Nervous system and biceps tendon regeneration day. Full rest allows complete ATP resynthesis and collagen remodeling.'}
-                      {selectedLog.restDetails.restType === 'Active Recovery' &&
-                        'Light low-intensity movement to promote systemic bloodflow and accelerate muscular recovery without neural stress.'}
-                      {selectedLog.restDetails.restType === 'Mobility & Prehab' &&
-                        'Focused on wrist extension prep, shoulder internal/external rotation, and thoracic spine decompressive stretches.'}
-                    </div>
-                  </div>
-
-                  {selectedLog.restDetails.notes && (
-                    <div className="bg-emerald-50/60 p-3.5 rounded-xl border border-emerald-100 space-y-1">
-                      <div className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-emerald-900">
-                        <FileText className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Recovery Notes & Biofeedback</span>
-                      </div>
-                      <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed italic">
-                        "{selectedLog.restDetails.notes}"
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Work Day & Fatigue Analysis Section (shows whenever workDetails is present) */}
-              {selectedLog.workDetails && (() => {
-                const analysis = getWorkFatigueAnalysis(selectedLog.workDetails);
-                return (
-                  <div className="bg-amber-50/70 border border-amber-200/90 rounded-2xl p-4 sm:p-5 space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-amber-200/60">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-9 h-9 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center shrink-0">
-                          <Briefcase className="w-4 h-4 text-amber-700" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-bold text-amber-950">Work Day Recorded</span>
-                            <span className="text-[10px] bg-amber-200 text-amber-900 font-bold px-2 py-0.5 rounded-full">
-                              {selectedLog.workDetails.hoursWorked} Hours
-                            </span>
-                            {selectedLog.workDetails.shiftTiming && (
-                              <span className="text-[10px] bg-white text-amber-800 font-medium px-2 py-0.5 rounded-full border border-amber-200">
-                                {selectedLog.workDetails.shiftTiming}
+                    <div className="space-y-3">
+                      {dayWorkouts.map((workout, idx) => (
+                        <div key={idx} className="bg-white rounded-xl p-4 sm:p-5 border border-blue-100 shadow-2xs space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs font-bold px-2.5 py-0.5 rounded-md bg-blue-100 text-blue-900">
+                                Session #{idx + 1}
                               </span>
-                            )}
+                              <span className="text-xs font-bold text-slate-900">
+                                {workout.workoutName}
+                              </span>
+                              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-blue-700">
+                                {workout.workoutIntensity}
+                              </span>
+                              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-700">
+                                {workout.targetRpe}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => openWorkoutModal(selectedDateKey, idx)}
+                                className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                              >
+                                <Edit3 className="w-3 h-3 text-slate-500" />
+                                <span>Edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteWorkoutItem(selectedDateKey, idx)}
+                                className="px-2.5 py-1 text-[11px] font-semibold text-rose-700 bg-white hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                title="Remove this workout session"
+                              >
+                                <Trash2 className="w-3 h-3 text-rose-600" />
+                                <span>Remove</span>
+                              </button>
+                            </div>
                           </div>
-                          <p className="text-[11px] text-amber-800 font-medium mt-0.5">
-                            {selectedLog.workDetails.shiftType} · {selectedLog.workDetails.physicalStrain}
-                          </p>
-                        </div>
-                      </div>
 
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => openWorkModal(selectedDateKey, selectedLog)}
-                          className="px-2.5 py-1 text-[11px] font-semibold text-amber-900 bg-white hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                        >
-                          <Edit3 className="w-3 h-3 text-amber-700" />
-                          <span>Edit Shift</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteWorkOnly(selectedDateKey)}
-                          className="px-2.5 py-1 text-[11px] font-semibold text-rose-700 bg-white hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                          title="Remove work day record from this date"
-                        >
-                          <Trash2 className="w-3 h-3 text-rose-600" />
-                          <span>Remove Shift</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Metric Cards */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
-                      <div className="bg-white p-2.5 rounded-xl border border-amber-200/60 shadow-2xs">
-                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Shift Duration</div>
-                        <div className="text-sm font-bold text-slate-900 mt-0.5">{selectedLog.workDetails.hoursWorked} hrs</div>
-                      </div>
-                      <div className="bg-white p-2.5 rounded-xl border border-amber-200/60 shadow-2xs">
-                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Shift Category</div>
-                        <div className="text-xs font-bold text-slate-800 mt-0.5 truncate" title={selectedLog.workDetails.shiftType}>
-                          {selectedLog.workDetails.shiftType}
-                        </div>
-                      </div>
-                      <div className="bg-white p-2.5 rounded-xl border border-amber-200/60 shadow-2xs">
-                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Work Fatigue</div>
-                        <div className="text-xs font-bold text-amber-800 mt-0.5 truncate" title={selectedLog.workDetails.fatigueLevel}>
-                          {selectedLog.workDetails.fatigueLevel}
-                        </div>
-                      </div>
-                      <div className="bg-white p-2.5 rounded-xl border border-amber-200/60 shadow-2xs">
-                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Physical Strain</div>
-                        <div className="text-xs font-bold text-slate-800 mt-0.5 truncate" title={selectedLog.workDetails.physicalStrain}>
-                          {selectedLog.workDetails.physicalStrain}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Why You're Fatigued Athlete Biomechanical Breakdown */}
-                    {analysis && (
-                      <div className="bg-white rounded-xl p-4 border border-amber-200/90 shadow-2xs space-y-2">
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-amber-950">
-                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                          <span>Why You're Fatigued: {analysis.title}</span>
-                        </div>
-                        <p className="text-xs text-slate-700 leading-relaxed">
-                          {analysis.explanation}
-                        </p>
-                        <div className="bg-amber-50/80 p-3 rounded-lg border border-amber-200 text-xs text-amber-950 font-medium leading-relaxed">
-                          💡 <strong className="font-bold text-amber-900">Training Calibration:</strong> {analysis.recommendation}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Personal Fatigue & Work Notes */}
-                    {selectedLog.workDetails.notes && (
-                      <div className="bg-white/80 p-3.5 rounded-xl border border-amber-200/70 space-y-1">
-                        <div className="text-[10px] font-bold text-amber-900 uppercase tracking-wider flex items-center gap-1">
-                          <FileText className="w-3.5 h-3.5 text-amber-600" />
-                          <span>Workplace Fatigue Biofeedback Notes</span>
-                        </div>
-                        <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed italic">
-                          "{selectedLog.workDetails.notes}"
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Quick prompt to log workout if purely a work day */}
-                    {selectedLog.type === 'work' && !selectedLog.workoutDetails && (
-                      <div className="p-3 bg-blue-50/60 border border-blue-200/70 rounded-xl flex items-center justify-between gap-3 text-xs">
-                        <div className="text-blue-900">
-                          <span className="font-bold">Did you train before or after this work shift?</span>
-                          <p className="text-[11px] text-blue-700 mt-0.5">Attach a workout session to this date to record your exercises and sets.</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => openWorkoutModal(selectedDateKey)}
-                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shrink-0 transition-colors cursor-pointer flex items-center gap-1"
-                        >
-                          <Dumbbell className="w-3.5 h-3.5" />
-                          <span>+ Log Workout</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* High Symptom & FND Attack Section (shows whenever symptomDetails is present or type is symptom) */}
-              {(selectedLog.symptomDetails || selectedLog.type === 'symptom') && (() => {
-                const symptom = selectedLog.symptomDetails;
-                const analysis = getFndSymptomAnalysis(symptom);
-                return (
-                  <div className="bg-rose-50/75 border border-rose-200/90 rounded-2xl p-4 sm:p-5 space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-rose-200/60">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-9 h-9 rounded-xl bg-rose-100 border border-rose-200 flex items-center justify-center shrink-0">
-                          <ShieldAlert className="w-4 h-4 text-rose-700" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-bold text-rose-950">FND Attack / High Symptom Day</span>
-                            {symptom?.severity && (
-                              <span className="text-[10px] bg-rose-200 text-rose-900 font-bold px-2 py-0.5 rounded-full">
-                                {symptom.severity}
-                              </span>
-                            )}
-                            {symptom?.duration && (
-                              <span className="text-[10px] bg-white text-rose-800 font-medium px-2 py-0.5 rounded-full border border-rose-200">
-                                {symptom.duration}
-                              </span>
-                            )}
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                            <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                              <div className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Sets Completed</div>
+                              <div className="text-sm font-bold text-slate-900 mt-0.5">
+                                {workout.completedSets} / {workout.totalSets} sets
+                              </div>
+                            </div>
+                            <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                              <div className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Session Duration</div>
+                              <div className="text-sm font-bold text-slate-900 mt-0.5">
+                                {workout.durationMinutes} minutes
+                              </div>
+                            </div>
+                            <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 col-span-2 sm:col-span-1">
+                              <div className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Completion Rate</div>
+                              <div className="text-sm font-bold text-emerald-600 mt-0.5 flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>
+                                  {Math.round(((workout.completedSets || 1) / (workout.totalSets || 1)) * 100)}% Achieved
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                          <p className="text-[11px] text-rose-800 font-medium mt-0.5">
-                            {symptom?.attackType || 'Neurological Motor Flare'} · {symptom?.triggers || 'Post-Strain / High Fatigue'}
-                          </p>
+
+                          {workout.exercises && (
+                            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-1">
+                              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                Exercises Performed
+                              </div>
+                              <div className="text-xs text-slate-700 leading-relaxed">
+                                {workout.exercises}
+                              </div>
+                            </div>
+                          )}
+
+                          {workout.notes && (
+                            <div className="bg-blue-50/60 p-3 rounded-lg border border-blue-100 space-y-1">
+                              <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-blue-900">
+                                <FileText className="w-3 h-3 text-blue-600" />
+                                <span>Athlete Biofeedback & Session Notes</span>
+                              </div>
+                              <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed italic">
+                                "{workout.notes}"
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. Work Day & Fatigue Analysis Section */}
+                {selectedLog.workDetails && (() => {
+                  const analysis = getWorkFatigueAnalysis(selectedLog.workDetails);
+                  return (
+                    <div className="bg-amber-50/70 border border-amber-200/90 rounded-2xl p-4 sm:p-5 space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-amber-200/60">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-9 h-9 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center shrink-0">
+                            <Briefcase className="w-4 h-4 text-amber-700" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-bold text-amber-950">Work Day Recorded</span>
+                              <span className="text-[10px] bg-amber-200 text-amber-900 font-bold px-2 py-0.5 rounded-full">
+                                {selectedLog.workDetails.hoursWorked} Hours
+                              </span>
+                              {selectedLog.workDetails.shiftTiming && (
+                                <span className="text-[10px] bg-white text-amber-800 font-medium px-2 py-0.5 rounded-full border border-amber-200">
+                                  {selectedLog.workDetails.shiftTiming}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-amber-800 font-medium mt-0.5">
+                              {selectedLog.workDetails.shiftType} · {selectedLog.workDetails.physicalStrain}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => openWorkModal(selectedDateKey, selectedLog)}
+                            className="px-2.5 py-1 text-[11px] font-semibold text-amber-900 bg-white hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                          >
+                            <Edit3 className="w-3 h-3 text-amber-700" />
+                            <span>Edit Shift</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteWorkOnly(selectedDateKey)}
+                            className="px-2.5 py-1 text-[11px] font-semibold text-rose-700 bg-white hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                            title="Remove work day record from this date"
+                          >
+                            <Trash2 className="w-3 h-3 text-rose-600" />
+                            <span>Remove Shift</span>
+                          </button>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => openSymptomModal(selectedDateKey, selectedLog)}
-                          className="px-2.5 py-1 text-[11px] font-semibold text-rose-900 bg-white hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                        >
-                          <Edit3 className="w-3 h-3 text-rose-700" />
-                          <span>Edit Attack</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteSymptomOnly(selectedDateKey)}
-                          className="px-2.5 py-1 text-[11px] font-semibold text-rose-700 bg-white hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                          title="Remove symptom / FND attack record from this date"
-                        >
-                          <Trash2 className="w-3 h-3 text-rose-600" />
-                          <span>Remove Record</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Metric Cards */}
-                    {symptom && (
+                      {/* Metric Cards */}
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
-                        <div className="bg-white p-2.5 rounded-xl border border-rose-200/60 shadow-2xs">
-                          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Attack Severity</div>
-                          <div className="text-xs font-bold text-rose-900 mt-0.5 truncate" title={symptom.severity}>
-                            {symptom.severity}
+                        <div className="bg-white p-2.5 rounded-xl border border-amber-200/60 shadow-2xs">
+                          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Shift Duration</div>
+                          <div className="text-sm font-bold text-slate-900 mt-0.5">{selectedLog.workDetails.hoursWorked} hrs</div>
+                        </div>
+                        <div className="bg-white p-2.5 rounded-xl border border-amber-200/60 shadow-2xs">
+                          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Shift Category</div>
+                          <div className="text-xs font-bold text-slate-800 mt-0.5 truncate" title={selectedLog.workDetails.shiftType}>
+                            {selectedLog.workDetails.shiftType}
                           </div>
                         </div>
-                        <div className="bg-white p-2.5 rounded-xl border border-rose-200/60 shadow-2xs">
-                          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Manifestation</div>
-                          <div className="text-xs font-bold text-slate-800 mt-0.5 truncate" title={symptom.attackType}>
-                            {symptom.attackType}
+                        <div className="bg-white p-2.5 rounded-xl border border-amber-200/60 shadow-2xs">
+                          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Work Fatigue</div>
+                          <div className="text-xs font-bold text-amber-800 mt-0.5 truncate" title={selectedLog.workDetails.fatigueLevel}>
+                            {selectedLog.workDetails.fatigueLevel}
                           </div>
                         </div>
-                        <div className="bg-white p-2.5 rounded-xl border border-rose-200/60 shadow-2xs">
-                          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Duration</div>
-                          <div className="text-xs font-bold text-slate-800 mt-0.5 truncate" title={symptom.duration}>
-                            {symptom.duration}
-                          </div>
-                        </div>
-                        <div className="bg-white p-2.5 rounded-xl border border-rose-200/60 shadow-2xs">
-                          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Workout Impact</div>
-                          <div className="text-xs font-bold text-rose-800 mt-0.5 truncate" title={symptom.workoutImpact}>
-                            {symptom.workoutImpact}
+                        <div className="bg-white p-2.5 rounded-xl border border-amber-200/60 shadow-2xs">
+                          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Physical Strain</div>
+                          <div className="text-xs font-bold text-slate-800 mt-0.5 truncate" title={selectedLog.workDetails.physicalStrain}>
+                            {selectedLog.workDetails.physicalStrain}
                           </div>
                         </div>
                       </div>
-                    )}
 
-                    {/* Why You're Fatigued Neurological Analysis */}
-                    {analysis && (
-                      <div className="bg-white rounded-xl p-4 border border-rose-200/90 shadow-2xs space-y-2">
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-rose-950">
-                          <Zap className="w-4 h-4 text-rose-600 shrink-0" />
-                          <span>Why You're Fatigued: {analysis.title}</span>
+                      {/* Why You're Fatigued Athlete Biomechanical Breakdown */}
+                      {analysis && (
+                        <div className="bg-white rounded-xl p-4 border border-amber-200/90 shadow-2xs space-y-2">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-amber-950">
+                            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>Why You're Fatigued: {analysis.title}</span>
+                          </div>
+                          <p className="text-xs text-slate-700 leading-relaxed">
+                            {analysis.explanation}
+                          </p>
+                          <div className="bg-amber-50/80 p-3 rounded-lg border border-amber-200 text-xs text-amber-950 font-medium leading-relaxed">
+                            💡 <strong className="font-bold text-amber-900">Training Calibration:</strong> {analysis.recommendation}
+                          </div>
                         </div>
-                        <p className="text-xs text-slate-700 leading-relaxed">
-                          {analysis.explanation}
-                        </p>
-                        <div className="bg-rose-50/80 p-3 rounded-lg border border-rose-200 text-xs text-rose-950 font-medium leading-relaxed">
-                          🧠 <strong className="font-bold text-rose-900">Neurological Calibration & Recovery:</strong> {analysis.recommendation}
+                      )}
+
+                      {/* Personal Fatigue & Work Notes */}
+                      {selectedLog.workDetails.notes && (
+                        <div className="bg-white/80 p-3.5 rounded-xl border border-amber-200/70 space-y-1">
+                          <div className="text-[10px] font-bold text-amber-900 uppercase tracking-wider flex items-center gap-1">
+                            <FileText className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Workplace Fatigue Biofeedback Notes</span>
+                          </div>
+                          <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed italic">
+                            "{selectedLog.workDetails.notes}"
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* 3. Rest & Recovery Details Section */}
+                {selectedLog.restDetails && (
+                  <div className="bg-emerald-50/70 border border-emerald-200/90 rounded-2xl p-4 sm:p-5 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-emerald-200/60">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-xl bg-emerald-100 border border-emerald-200 flex items-center justify-center shrink-0">
+                          <Moon className="w-4 h-4 text-emerald-700" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-bold text-emerald-950">Rest & Recovery Protocol</span>
+                            <span className="text-[10px] bg-emerald-200 text-emerald-900 font-bold px-2 py-0.5 rounded-full">
+                              {selectedLog.restDetails.restType}
+                            </span>
+                            {selectedLog.restDetails.sleepQuality && (
+                              <span className="text-[10px] bg-white text-emerald-800 font-medium px-2 py-0.5 rounded-full border border-emerald-200">
+                                Sleep: {selectedLog.restDetails.sleepQuality}
+                              </span>
+                            )}
+                            {selectedLog.restDetails.fatigueLevel && (
+                              <span className="text-[10px] bg-white text-emerald-800 font-medium px-2 py-0.5 rounded-full border border-emerald-200">
+                                Status: {selectedLog.restDetails.fatigueLevel}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-emerald-800 font-medium mt-0.5">
+                            Active CNS & tendon replenishment
+                          </p>
                         </div>
                       </div>
-                    )}
 
-                    {/* Athlete Notes */}
-                    {symptom?.notes && (
-                      <div className="bg-white/80 p-3.5 rounded-xl border border-rose-200/70 space-y-1">
-                        <div className="text-[10px] font-bold text-rose-900 uppercase tracking-wider flex items-center gap-1">
-                          <FileText className="w-3.5 h-3.5 text-rose-600" />
-                          <span>FND Symptom Notes & Trigger Biofeedback</span>
-                        </div>
-                        <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed italic">
-                          "{symptom.notes}"
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Quick workout or work prompt if purely a symptom day */}
-                    {selectedLog.type === 'symptom' && !selectedLog.workoutDetails && (
-                      <div className="p-3 bg-blue-50/60 border border-blue-200/70 rounded-xl flex items-center justify-between gap-3 text-xs">
-                        <div className="text-blue-900">
-                          <span className="font-bold">Did you attempt light GTG or submax training today?</span>
-                          <p className="text-[11px] text-blue-700 mt-0.5">Attach a session to see how neurological fatigue impacted your sets or holds.</p>
-                        </div>
+                      <div className="flex items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => openWorkoutModal(selectedDateKey)}
-                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shrink-0 transition-colors cursor-pointer flex items-center gap-1"
+                          onClick={() => openRestModal(selectedDateKey, selectedLog)}
+                          className="px-2.5 py-1 text-[11px] font-semibold text-emerald-900 bg-white hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
                         >
-                          <Dumbbell className="w-3.5 h-3.5" />
-                          <span>+ Log Workout</span>
+                          <Edit3 className="w-3 h-3 text-emerald-700" />
+                          <span>Edit Rest</span>
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteRestOnly(selectedDateKey)}
+                          className="px-2.5 py-1 text-[11px] font-semibold text-rose-700 bg-white hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                          title="Remove rest day record from this date"
+                        >
+                          <Trash2 className="w-3 h-3 text-rose-600" />
+                          <span>Remove Rest</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-xl border border-emerald-200/70 space-y-2">
+                      <div className="text-xs text-slate-600 leading-relaxed">
+                        {selectedLog.restDetails.restType === 'Full Rest' &&
+                          'Nervous system and biceps tendon regeneration day. Full rest allows complete ATP resynthesis and collagen remodeling.'}
+                        {selectedLog.restDetails.restType === 'Active Recovery' &&
+                          'Light low-intensity movement to promote systemic bloodflow and accelerate muscular recovery without neural stress.'}
+                        {selectedLog.restDetails.restType === 'Mobility & Prehab' &&
+                          'Focused on wrist extension prep, shoulder internal/external rotation, and thoracic spine decompressive stretches.'}
+                      </div>
+                    </div>
+
+                    {selectedLog.restDetails.notes && (
+                      <div className="bg-white/80 p-3.5 rounded-xl border border-emerald-200/70 space-y-1">
+                        <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-900">
+                          <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Recovery Notes & Biofeedback</span>
+                        </div>
+                        <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed italic">
+                          "{selectedLog.restDetails.notes}"
+                        </p>
                       </div>
                     )}
                   </div>
-                );
-              })()}
-            </div>
-          ) : (
+                )}
+
+                {/* 4. High Symptom & FND Attacks Section */}
+                {daySymptoms.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg bg-rose-600 text-white shadow-2xs">
+                          <ShieldAlert className="w-3.5 h-3.5" />
+                          <span>FND Attacks & Flares ({daySymptoms.length})</span>
+                        </span>
+                        <span className="text-xs text-slate-500 font-medium hidden sm:inline">
+                          Neurological motor & sensory event logging
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openSymptomModal(selectedDateKey)}
+                        className="text-xs font-semibold text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Another Attack</span>
+                      </button>
+                    </div>
+
+                    <div className="space-y-3">
+                      {daySymptoms.map((symptom, idx) => {
+                        const analysis = getFndSymptomAnalysis(symptom);
+                        return (
+                          <div key={idx} className="bg-rose-50/75 border border-rose-200/90 rounded-2xl p-4 sm:p-5 space-y-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-rose-200/60">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-9 h-9 rounded-xl bg-rose-100 border border-rose-200 flex items-center justify-center shrink-0">
+                                  <ShieldAlert className="w-4 h-4 text-rose-700" />
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-xs font-bold text-rose-950">Attack #{idx + 1}</span>
+                                    <span className="text-[10px] bg-rose-200 text-rose-900 font-bold px-2 py-0.5 rounded-full">
+                                      {symptom.severity}
+                                    </span>
+                                    <span className="text-[10px] bg-white text-rose-800 font-medium px-2 py-0.5 rounded-full border border-rose-200">
+                                      {symptom.duration}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-rose-800 font-medium mt-0.5">
+                                    {symptom.attackType} · {symptom.triggers}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => openSymptomModal(selectedDateKey, idx)}
+                                  className="px-2.5 py-1 text-[11px] font-semibold text-rose-900 bg-white hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                >
+                                  <Edit3 className="w-3 h-3 text-rose-700" />
+                                  <span>Edit</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSymptomItem(selectedDateKey, idx)}
+                                  className="px-2.5 py-1 text-[11px] font-semibold text-rose-700 bg-white hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                  title="Remove this symptom event"
+                                >
+                                  <Trash2 className="w-3 h-3 text-rose-600" />
+                                  <span>Remove</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Metric Cards */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                              <div className="bg-white p-2.5 rounded-xl border border-rose-200/60 shadow-2xs">
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Attack Severity</div>
+                                <div className="text-xs font-bold text-rose-900 mt-0.5 truncate" title={symptom.severity}>
+                                  {symptom.severity}
+                                </div>
+                              </div>
+                              <div className="bg-white p-2.5 rounded-xl border border-rose-200/60 shadow-2xs">
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Manifestation</div>
+                                <div className="text-xs font-bold text-slate-800 mt-0.5 truncate" title={symptom.attackType}>
+                                  {symptom.attackType}
+                                </div>
+                              </div>
+                              <div className="bg-white p-2.5 rounded-xl border border-rose-200/60 shadow-2xs">
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Duration</div>
+                                <div className="text-xs font-bold text-slate-800 mt-0.5 truncate" title={symptom.duration}>
+                                  {symptom.duration}
+                                </div>
+                              </div>
+                              <div className="bg-white p-2.5 rounded-xl border border-rose-200/60 shadow-2xs">
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Workout Impact</div>
+                                <div className="text-xs font-bold text-rose-800 mt-0.5 truncate" title={symptom.workoutImpact}>
+                                  {symptom.workoutImpact}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Why You're Fatigued Neurological Analysis */}
+                            {analysis && (
+                              <div className="bg-white rounded-xl p-4 border border-rose-200/90 shadow-2xs space-y-2">
+                                <div className="flex items-center gap-1.5 text-xs font-bold text-rose-950">
+                                  <Zap className="w-4 h-4 text-rose-600 shrink-0" />
+                                  <span>Why You're Fatigued: {analysis.title}</span>
+                                </div>
+                                <p className="text-xs text-slate-700 leading-relaxed">
+                                  {analysis.explanation}
+                                </p>
+                                <div className="bg-rose-50/80 p-3 rounded-lg border border-rose-200 text-xs text-rose-950 font-medium leading-relaxed">
+                                  🧠 <strong className="font-bold text-rose-900">Neurological Calibration & Recovery:</strong> {analysis.recommendation}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Athlete Notes */}
+                            {symptom.notes && (
+                              <div className="bg-white/80 p-3.5 rounded-xl border border-rose-200/70 space-y-1">
+                                <div className="text-[10px] font-bold text-rose-900 uppercase tracking-wider flex items-center gap-1">
+                                  <FileText className="w-3.5 h-3.5 text-rose-600" />
+                                  <span>FND Symptom Notes & Trigger Biofeedback</span>
+                                </div>
+                                <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed italic">
+                                  "{symptom.notes}"
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })() : (
             <div className="py-6 text-center text-slate-500 space-y-2">
               <Activity className="w-8 h-8 text-slate-300 mx-auto" />
               <div className="text-xs font-semibold text-slate-700">
                 No activity, work shift, or rest logged for this date.
               </div>
               <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
-                Log a workout session, record an FND attack / high symptom day, mark a work day to monitor fatigue impact, or record a rest day!
+                Log multiple workout sessions, record FND attacks / flares, mark work shifts, and schedule rest days on the same date!
               </p>
               <div className="pt-2 flex items-center justify-center flex-wrap gap-2.5">
                 <button
@@ -1784,7 +1987,7 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900">
-                    {editingLogId ? 'Edit Workout Session' : 'Log Workout Session'}
+                    {editingWorkoutIndex !== null ? `Edit Workout Session #${editingWorkoutIndex + 1}` : 'Log Workout Session'}
                   </h3>
                   <p className="text-xs text-slate-500">Record your calisthenics training details</p>
                 </div>
@@ -2009,7 +2212,7 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                   className="px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>{editingLogId ? 'Update Workout' : 'Save Workout'}</span>
+                  <span>{editingWorkoutIndex !== null ? 'Update Workout Session' : 'Save Workout Session'}</span>
                 </button>
               </div>
             </form>
@@ -2331,7 +2534,7 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900">
-                    {editingLogId ? 'Edit FND Attack / High Symptom' : 'Log High Symptom / FND Attack'}
+                    {editingSymptomIndex !== null ? `Edit FND Attack #${editingSymptomIndex + 1}` : 'Log High Symptom / FND Attack'}
                   </h3>
                   <p className="text-xs text-slate-500">
                     Track neurological attacks, motor fatigue, and training impact
@@ -2492,7 +2695,7 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                   className="px-5 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>{editingLogId ? 'Update FND Attack' : 'Save FND Attack'}</span>
+                  <span>{editingSymptomIndex !== null ? 'Update FND Attack' : 'Save FND Attack'}</span>
                 </button>
               </div>
             </form>

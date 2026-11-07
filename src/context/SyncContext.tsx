@@ -179,25 +179,36 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
             localCalendar.forEach((entry) => {
               const cleanId = String(entry.id || `cal_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '_');
               const docRef = doc(db, 'users', uid, 'calendarLogs', cleanId);
+              const workouts = entry.workoutList && entry.workoutList.length > 0 ? entry.workoutList : entry.workoutDetails ? [entry.workoutDetails] : [];
+              const symptoms = entry.symptomList && entry.symptomList.length > 0 ? entry.symptomList : entry.symptomDetails ? [entry.symptomDetails] : [];
+              const primaryWorkout = workouts[0] || entry.workoutDetails;
+              const primarySymptom = symptoms[0] || entry.symptomDetails;
+              const hasMultipleTypes = (workouts.length > 0 ? 1 : 0) + (entry.restDetails ? 1 : 0) + (entry.workDetails ? 1 : 0) + (symptoms.length > 0 ? 1 : 0) > 1 || workouts.length > 1;
+              const entryType = hasMultipleTypes ? 'multi' : entry.type === 'rest' ? 'rest' : entry.type === 'work' ? 'work' : entry.type === 'symptom' ? 'symptom' : 'workout';
+
               batch.set(docRef, {
                 id: cleanId,
                 userId: uid,
                 date: entry.date,
-                type: entry.type === 'rest' ? 'rest' : entry.type === 'work' ? 'work' : entry.type === 'symptom' ? 'symptom' : 'workout',
-                isWorkDay: Boolean(entry.isWorkDay || entry.type === 'work'),
-                hasFndAttack: Boolean(entry.hasFndAttack || entry.type === 'symptom' || entry.symptomDetails),
-                symptomSeverity: String(entry.symptomDetails?.severity || '').slice(0, 128),
-                symptomAttackType: String(entry.symptomDetails?.attackType || '').slice(0, 128),
-                symptomDuration: String(entry.symptomDetails?.duration || '').slice(0, 64),
-                symptomTriggers: String(entry.symptomDetails?.triggers || '').slice(0, 256),
-                symptomWorkoutImpact: String(entry.symptomDetails?.workoutImpact || '').slice(0, 128),
-                symptomNotes: String(entry.symptomDetails?.notes || '').slice(0, 2048),
-                workoutName: String(entry.workoutDetails?.workoutName || '').slice(0, 256),
-                workoutIntensity: String(entry.workoutDetails?.workoutIntensity || '').slice(0, 128),
-                durationMinutes: Number(entry.workoutDetails?.durationMinutes || 0),
-                completedSets: Number(entry.workoutDetails?.completedSets || 0),
-                totalSets: Number(entry.workoutDetails?.totalSets || 0),
-                targetRpe: String(entry.workoutDetails?.targetRpe || '').slice(0, 64),
+                type: entryType,
+                allWorkoutsJson: workouts.length > 0 ? JSON.stringify(workouts).slice(0, 20000) : '',
+                allSymptomsJson: symptoms.length > 0 ? JSON.stringify(symptoms).slice(0, 20000) : '',
+                isWorkDay: Boolean(entry.isWorkDay || entry.workDetails || entry.type === 'work'),
+                hasFndAttack: Boolean(entry.hasFndAttack || symptoms.length > 0 || entry.type === 'symptom'),
+                hasRest: Boolean(entry.restDetails || entry.type === 'rest'),
+                hasWorkout: Boolean(workouts.length > 0),
+                symptomSeverity: String(primarySymptom?.severity || '').slice(0, 128),
+                symptomAttackType: String(primarySymptom?.attackType || '').slice(0, 128),
+                symptomDuration: String(primarySymptom?.duration || '').slice(0, 64),
+                symptomTriggers: String(primarySymptom?.triggers || '').slice(0, 256),
+                symptomWorkoutImpact: String(primarySymptom?.workoutImpact || '').slice(0, 128),
+                symptomNotes: String(primarySymptom?.notes || '').slice(0, 2048),
+                workoutName: String(primaryWorkout?.workoutName || '').slice(0, 256),
+                workoutIntensity: String(primaryWorkout?.workoutIntensity || '').slice(0, 128),
+                durationMinutes: Number(primaryWorkout?.durationMinutes || 0),
+                completedSets: Number(primaryWorkout?.completedSets || 0),
+                totalSets: Number(primaryWorkout?.totalSets || 0),
+                targetRpe: String(primaryWorkout?.targetRpe || '').slice(0, 64),
                 restType: String(entry.restDetails?.restType || '').slice(0, 64),
                 sleepQuality: String(entry.restDetails?.sleepQuality || '').slice(0, 64),
                 fatigueLevel: String(entry.restDetails?.fatigueLevel || '').slice(0, 64),
@@ -205,7 +216,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 workHours: Number(entry.workDetails?.hoursWorked || 0),
                 workFatigue: String(entry.workDetails?.fatigueLevel || '').slice(0, 64),
                 physicalStrain: String(entry.workDetails?.physicalStrain || '').slice(0, 128),
-                notes: String(entry.workoutDetails?.notes || entry.restDetails?.notes || entry.workDetails?.notes || entry.symptomDetails?.notes || '').slice(0, 2048),
+                notes: String(primaryWorkout?.notes || entry.restDetails?.notes || entry.workDetails?.notes || primarySymptom?.notes || '').slice(0, 2048),
                 createdAt: new Date().toISOString(),
               });
             });
@@ -350,13 +361,16 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const logDate = data.date;
             if (logDate) {
               count += 1;
-              calMap[logDate] = {
-                id: data.id || docSnap.id,
-                date: logDate,
-                type: data.type === 'rest' ? 'rest' : data.type === 'work' ? 'work' : data.type === 'symptom' ? 'symptom' : 'workout',
-                isWorkDay: Boolean(data.isWorkDay || data.type === 'work'),
-                hasFndAttack: Boolean(data.hasFndAttack || data.type === 'symptom' || data.symptomSeverity),
-                workoutDetails: (data.type === 'workout' || data.completedSets > 0) ? {
+              let workoutList: any[] = [];
+              if (data.allWorkoutsJson) {
+                try {
+                  workoutList = JSON.parse(data.allWorkoutsJson);
+                } catch {
+                  workoutList = [];
+                }
+              }
+              if (workoutList.length === 0 && (data.type === 'workout' || data.completedSets > 0 || data.workoutName)) {
+                workoutList = [{
                   workoutName: data.workoutName || '',
                   workoutIntensity: data.workoutIntensity || '',
                   durationMinutes: data.durationMinutes || 0,
@@ -364,28 +378,60 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   totalSets: data.totalSets || 0,
                   targetRpe: data.targetRpe || '',
                   notes: data.notes || '',
-                } : undefined,
-                restDetails: data.type === 'rest' ? {
-                  restType: (data.restType as any) || 'Full Rest',
-                  sleepQuality: data.sleepQuality,
-                  fatigueLevel: data.fatigueLevel,
-                  notes: data.notes,
-                } : undefined,
-                workDetails: (data.type === 'work' || data.isWorkDay || data.workHours > 0) ? {
-                  shiftType: data.shiftType || 'Standard Shift',
-                  hoursWorked: data.workHours || 8,
-                  fatigueLevel: data.workFatigue || 'Moderate Drain (3/5)',
-                  physicalStrain: data.physicalStrain || 'Standing / Movement',
-                  notes: data.notes || '',
-                } : undefined,
-                symptomDetails: (data.type === 'symptom' || data.hasFndAttack || data.symptomSeverity) ? {
+                }];
+              }
+
+              let symptomList: any[] = [];
+              if (data.allSymptomsJson) {
+                try {
+                  symptomList = JSON.parse(data.allSymptomsJson);
+                } catch {
+                  symptomList = [];
+                }
+              }
+              if (symptomList.length === 0 && (data.type === 'symptom' || data.hasFndAttack || data.symptomSeverity)) {
+                symptomList = [{
                   severity: data.symptomSeverity || 'High Symptom Attack',
                   attackType: data.symptomAttackType || 'FND Attack Spike',
                   duration: data.symptomDuration || '',
                   triggers: data.symptomTriggers || '',
                   workoutImpact: data.symptomWorkoutImpact || '',
                   notes: data.symptomNotes || data.notes || '',
+                }];
+              }
+
+              const hasWorkout = workoutList.length > 0;
+              const hasRest = Boolean(data.hasRest || data.type === 'rest' || data.restType);
+              const hasWork = Boolean(data.isWorkDay || data.type === 'work' || data.workHours > 0 || data.shiftType);
+              const hasFnd = Boolean(symptomList.length > 0 || data.hasFndAttack || data.type === 'symptom');
+
+              const isMulti = ((hasWorkout ? 1 : 0) + (hasRest ? 1 : 0) + (hasWork ? 1 : 0) + (hasFnd ? 1 : 0) > 1) || workoutList.length > 1 || data.type === 'multi';
+
+              calMap[logDate] = {
+                id: data.id || docSnap.id,
+                date: logDate,
+                type: isMulti ? 'multi' : data.type === 'rest' ? 'rest' : data.type === 'work' ? 'work' : data.type === 'symptom' ? 'symptom' : 'workout',
+                isWorkDay: hasWork,
+                hasFndAttack: hasFnd,
+                hasRest,
+                hasWorkout,
+                workoutList: workoutList.length > 0 ? workoutList : undefined,
+                workoutDetails: workoutList[0],
+                restDetails: hasRest ? {
+                  restType: (data.restType as any) || 'Full Rest',
+                  sleepQuality: data.sleepQuality,
+                  fatigueLevel: data.fatigueLevel,
+                  notes: data.notes,
                 } : undefined,
+                workDetails: hasWork ? {
+                  shiftType: data.shiftType || 'Standard Shift',
+                  hoursWorked: data.workHours || 8,
+                  fatigueLevel: data.workFatigue || 'Moderate Drain (3/5)',
+                  physicalStrain: data.physicalStrain || 'Standing / Movement',
+                  notes: data.notes || '',
+                } : undefined,
+                symptomList: symptomList.length > 0 ? symptomList : undefined,
+                symptomDetails: symptomList[0],
                 createdAt: data.createdAt,
               };
             }
@@ -578,25 +624,38 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSyncStatus('syncing');
       const cleanId = String(log.id).replace(/[^a-zA-Z0-9_-]/g, '_');
       const docRef = doc(db, 'users', user.uid, 'calendarLogs', cleanId);
+
+      const workouts = log.workoutList && log.workoutList.length > 0 ? log.workoutList : log.workoutDetails ? [log.workoutDetails] : [];
+      const symptoms = log.symptomList && log.symptomList.length > 0 ? log.symptomList : log.symptomDetails ? [log.symptomDetails] : [];
+      const primaryWorkout = workouts[0] || log.workoutDetails;
+      const primarySymptom = symptoms[0] || log.symptomDetails;
+
+      const hasMultipleTypes = (workouts.length > 0 ? 1 : 0) + (log.restDetails ? 1 : 0) + (log.workDetails ? 1 : 0) + (symptoms.length > 0 ? 1 : 0) > 1 || workouts.length > 1;
+      const entryType = hasMultipleTypes ? 'multi' : log.type === 'rest' ? 'rest' : log.type === 'work' ? 'work' : log.type === 'symptom' ? 'symptom' : 'workout';
+
       await setDoc(docRef, {
         id: cleanId,
         userId: user.uid,
         date: log.date,
-        type: log.type === 'rest' ? 'rest' : log.type === 'work' ? 'work' : log.type === 'symptom' ? 'symptom' : 'workout',
-        isWorkDay: Boolean(log.isWorkDay || log.type === 'work'),
-        hasFndAttack: Boolean(log.hasFndAttack || log.type === 'symptom' || log.symptomDetails),
-        symptomSeverity: String(log.symptomDetails?.severity || '').slice(0, 128),
-        symptomAttackType: String(log.symptomDetails?.attackType || '').slice(0, 128),
-        symptomDuration: String(log.symptomDetails?.duration || '').slice(0, 64),
-        symptomTriggers: String(log.symptomDetails?.triggers || '').slice(0, 256),
-        symptomWorkoutImpact: String(log.symptomDetails?.workoutImpact || '').slice(0, 128),
-        symptomNotes: String(log.symptomDetails?.notes || '').slice(0, 2048),
-        workoutName: String(log.workoutDetails?.workoutName || '').slice(0, 256),
-        workoutIntensity: String(log.workoutDetails?.workoutIntensity || '').slice(0, 128),
-        durationMinutes: Number(log.workoutDetails?.durationMinutes || 0),
-        completedSets: Number(log.workoutDetails?.completedSets || 0),
-        totalSets: Number(log.workoutDetails?.totalSets || 0),
-        targetRpe: String(log.workoutDetails?.targetRpe || '').slice(0, 64),
+        type: entryType,
+        allWorkoutsJson: workouts.length > 0 ? JSON.stringify(workouts).slice(0, 20000) : '',
+        allSymptomsJson: symptoms.length > 0 ? JSON.stringify(symptoms).slice(0, 20000) : '',
+        isWorkDay: Boolean(log.isWorkDay || log.workDetails || log.type === 'work'),
+        hasFndAttack: Boolean(log.hasFndAttack || symptoms.length > 0 || log.type === 'symptom'),
+        hasRest: Boolean(log.restDetails || log.type === 'rest'),
+        hasWorkout: Boolean(workouts.length > 0),
+        symptomSeverity: String(primarySymptom?.severity || '').slice(0, 128),
+        symptomAttackType: String(primarySymptom?.attackType || '').slice(0, 128),
+        symptomDuration: String(primarySymptom?.duration || '').slice(0, 64),
+        symptomTriggers: String(primarySymptom?.triggers || '').slice(0, 256),
+        symptomWorkoutImpact: String(primarySymptom?.workoutImpact || '').slice(0, 128),
+        symptomNotes: String(primarySymptom?.notes || '').slice(0, 2048),
+        workoutName: String(primaryWorkout?.workoutName || '').slice(0, 256),
+        workoutIntensity: String(primaryWorkout?.workoutIntensity || '').slice(0, 128),
+        durationMinutes: Number(primaryWorkout?.durationMinutes || 0),
+        completedSets: Number(primaryWorkout?.completedSets || 0),
+        totalSets: Number(primaryWorkout?.totalSets || 0),
+        targetRpe: String(primaryWorkout?.targetRpe || '').slice(0, 64),
         restType: String(log.restDetails?.restType || '').slice(0, 64),
         sleepQuality: String(log.restDetails?.sleepQuality || '').slice(0, 64),
         fatigueLevel: String(log.restDetails?.fatigueLevel || '').slice(0, 64),
@@ -604,7 +663,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
         workHours: Number(log.workDetails?.hoursWorked || 0),
         workFatigue: String(log.workDetails?.fatigueLevel || '').slice(0, 64),
         physicalStrain: String(log.workDetails?.physicalStrain || '').slice(0, 128),
-        notes: String(log.workoutDetails?.notes || log.restDetails?.notes || log.workDetails?.notes || log.symptomDetails?.notes || '').slice(0, 2048),
+        notes: String(primaryWorkout?.notes || log.restDetails?.notes || log.workDetails?.notes || primarySymptom?.notes || '').slice(0, 2048),
         createdAt: new Date().toISOString(),
       });
       setSyncStatus('synced');
