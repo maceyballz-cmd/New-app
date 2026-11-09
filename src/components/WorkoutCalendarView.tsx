@@ -24,6 +24,7 @@ import {
   Info,
   ShieldAlert,
   HeartPulse,
+  Calculator,
 } from 'lucide-react';
 import { WorkoutProgram, WorkoutType, getWorkoutProgram } from '../data/programData';
 
@@ -203,10 +204,16 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
   const [isWorkModalOpen, setIsWorkModalOpen] = useState(false);
   const [workDate, setWorkDate] = useState<string>(todayKey);
   const [workShiftType, setWorkShiftType] = useState<string>('Physical / Manual Labor');
-  const [workHours, setWorkHours] = useState<number>(8);
+  const [workHours, setWorkHours] = useState<number | string>(8);
   const [workFatigue, setWorkFatigue] = useState<string>('High Fatigue (4/5) - Low energy & power');
   const [workPhysicalStrain, setWorkPhysicalStrain] = useState<string>('Heavy Lifting & Back Strain');
   const [workShiftTiming, setWorkShiftTiming] = useState<string>('Standard (9am-5pm)');
+  const [isCustomShiftTiming, setIsCustomShiftTiming] = useState<boolean>(false);
+  const [customShiftTiming, setCustomShiftTiming] = useState<string>('');
+  const [showTimeCalculator, setShowTimeCalculator] = useState<boolean>(false);
+  const [calcStartTime, setCalcStartTime] = useState<string>('08:30');
+  const [calcEndTime, setCalcEndTime] = useState<string>('17:00');
+  const [calcBreakMinutes, setCalcBreakMinutes] = useState<number>(30);
   const [workNotes, setWorkNotes] = useState<string>('');
 
   // Form states for High Symptom / FND Attack Modal
@@ -461,18 +468,52 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
     setIsRestModalOpen(true);
   };
 
+  // Helper to calculate manual worked hours from start time, end time, and break minutes
+  const calculateShiftHours = (start: string, end: string, breakMins: number = 0) => {
+    if (!start || !end) return 0;
+    const [sh, sm] = start.split(':').map(Number);
+    const [eh, em] = end.split(':').map(Number);
+    if (isNaN(sh) || isNaN(sm) || isNaN(eh) || isNaN(em)) return 0;
+
+    let startMinutes = sh * 60 + sm;
+    let endMinutes = eh * 60 + em;
+    if (endMinutes < startMinutes) {
+      endMinutes += 24 * 60; // Crosses midnight (e.g. night shift)
+    }
+    const workedMinutes = Math.max(0, endMinutes - startMinutes - (breakMins || 0));
+    return Math.round((workedMinutes / 60) * 100) / 100;
+  };
+
   // Open Log Work Day modal
   const openWorkModal = (dateStr?: string, editLog?: CalendarDayLog) => {
     const targetDate = dateStr || selectedDateKey || todayKey;
     setWorkDate(targetDate);
     const existing = editLog || calendarLogs[targetDate];
+    const PRESET_TIMINGS = [
+      'Standard (9am-5pm)',
+      'Early Morning Shift (5am-1pm)',
+      'Afternoon / Evening (2pm-10pm)',
+      'Night / Graveyard Shift (10pm-6am)',
+      '12-Hour Long Shift',
+      'Split Shift / Irregular',
+    ];
+
     if (existing && existing.workDetails) {
       setEditingLogId(existing.id);
       setWorkShiftType(existing.workDetails.shiftType || 'Physical / Manual Labor');
-      setWorkHours(existing.workDetails.hoursWorked || 8);
+      setWorkHours(existing.workDetails.hoursWorked !== undefined ? existing.workDetails.hoursWorked : 8);
       setWorkFatigue(existing.workDetails.fatigueLevel || 'High Fatigue (4/5) - Low energy & power');
       setWorkPhysicalStrain(existing.workDetails.physicalStrain || 'Heavy Lifting & Back Strain');
-      setWorkShiftTiming(existing.workDetails.shiftTiming || 'Standard (9am-5pm)');
+      const timing = existing.workDetails.shiftTiming || 'Standard (9am-5pm)';
+      if (PRESET_TIMINGS.includes(timing)) {
+        setWorkShiftTiming(timing);
+        setIsCustomShiftTiming(false);
+        setCustomShiftTiming('');
+      } else {
+        setWorkShiftTiming('Custom / Manual Timing');
+        setIsCustomShiftTiming(true);
+        setCustomShiftTiming(timing);
+      }
       setWorkNotes(existing.workDetails.notes || '');
     } else {
       setEditingLogId(null);
@@ -481,8 +522,11 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
       setWorkFatigue('High Fatigue (4/5) - Low energy & power');
       setWorkPhysicalStrain('Heavy Lifting & Back Strain');
       setWorkShiftTiming('Standard (9am-5pm)');
+      setIsCustomShiftTiming(false);
+      setCustomShiftTiming('');
       setWorkNotes('');
     }
+    setShowTimeCalculator(false);
     setIsWorkModalOpen(true);
   };
 
@@ -750,10 +794,10 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
       symptomList: existingLog?.symptomList,
       workDetails: {
         shiftType: workShiftType,
-        hoursWorked: Number(workHours) || 8,
+        hoursWorked: Math.max(0.1, Math.round((Number(workHours) || 8) * 100) / 100),
         fatigueLevel: workFatigue,
         physicalStrain: workPhysicalStrain,
-        shiftTiming: workShiftTiming,
+        shiftTiming: isCustomShiftTiming && customShiftTiming.trim() ? customShiftTiming.trim() : workShiftTiming,
         notes: workNotes,
       },
       createdAt: existingLog?.createdAt || new Date().toISOString(),
@@ -2373,45 +2417,215 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Shift Category / Job Type</label>
-                  <select
-                    value={workShiftType}
-                    onChange={(e) => setWorkShiftType(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium text-slate-900"
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Shift Category / Job Type</label>
+                <select
+                  value={workShiftType}
+                  onChange={(e) => setWorkShiftType(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium text-slate-900"
+                >
+                  <option value="Physical / Manual Labor">Physical / Manual Labor</option>
+                  <option value="Standing / Retail / Hospitality">Standing / Retail / Hospitality</option>
+                  <option value="Desk / Sedentary Focus">Desk / Sedentary Focus</option>
+                  <option value="Healthcare / Shift Work">Healthcare / Shift Work</option>
+                  <option value="High-Stress Project Crunch">High-Stress Project Crunch</option>
+                  <option value="Standard Office Shift">Standard Office Shift</option>
+                  <option value="Warehouse / Heavy Logistics">Warehouse / Heavy Logistics</option>
+                </select>
+              </div>
+
+              {/* Dedicated Manual Hours Worked Input & Shift Time Calculator */}
+              <div className="bg-amber-50/70 border border-amber-200/90 rounded-2xl p-3.5 space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-amber-700" />
+                    <label className="font-bold text-slate-800 text-xs">
+                      Hours Worked (Manual Input)
+                    </label>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowTimeCalculator(!showTimeCalculator)}
+                    className="text-[11px] font-semibold text-amber-900 hover:text-amber-950 bg-white hover:bg-amber-100 border border-amber-300 px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
                   >
-                    <option value="Physical / Manual Labor">Physical / Manual Labor</option>
-                    <option value="Standing / Retail / Hospitality">Standing / Retail / Hospitality</option>
-                    <option value="Desk / Sedentary Focus">Desk / Sedentary Focus</option>
-                    <option value="Healthcare / Shift Work">Healthcare / Shift Work</option>
-                    <option value="High-Stress Project Crunch">High-Stress Project Crunch</option>
-                    <option value="Standard Office Shift">Standard Office Shift</option>
-                    <option value="Warehouse / Heavy Logistics">Warehouse / Heavy Logistics</option>
-                  </select>
+                    <Calculator className="w-3 h-3 text-amber-700" />
+                    <span>{showTimeCalculator ? 'Hide Shift Calculator' : 'Calculate from Start / End Time'}</span>
+                  </button>
                 </div>
 
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Hours Worked</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={24}
-                    step={0.5}
-                    required
-                    value={workHours}
-                    onChange={(e) => setWorkHours(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium text-slate-900"
-                  />
+                {/* Direct Manual Input with Step Adjusters */}
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="number"
+                      min={0.1}
+                      max={24}
+                      step="any"
+                      required
+                      value={workHours}
+                      onChange={(e) => setWorkHours(e.target.value)}
+                      placeholder="e.g. 8, 7.5, 9.25"
+                      className="w-full pl-3 pr-12 py-2 bg-white border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold text-slate-900 text-sm"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
+                      hrs
+                    </span>
+                  </div>
+
+                  {/* Step adjustments */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const current = Number(workHours) || 8;
+                        setWorkHours(Math.max(0.5, Math.round((current - 0.5) * 10) / 10));
+                      }}
+                      className="px-2 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl transition-colors cursor-pointer shadow-2xs"
+                      title="Subtract 0.5 hours"
+                    >
+                      -0.5h
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const current = Number(workHours) || 8;
+                        setWorkHours(Math.min(24, Math.round((current + 0.5) * 10) / 10));
+                      }}
+                      className="px-2 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl transition-colors cursor-pointer shadow-2xs"
+                      title="Add 0.5 hours"
+                    >
+                      +0.5h
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const current = Number(workHours) || 8;
+                        setWorkHours(Math.min(24, Math.round((current + 1) * 10) / 10));
+                      }}
+                      className="px-2 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl transition-colors cursor-pointer shadow-2xs"
+                      title="Add 1 hour"
+                    >
+                      +1h
+                    </button>
+                  </div>
                 </div>
+
+                {/* Quick Preset Buttons */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px] text-slate-500 font-medium">
+                    <span>Quick presets:</span>
+                    <span>Type any exact or decimal hours above</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[4, 5, 6, 7.5, 8, 8.5, 9, 10, 12].map((preset) => {
+                      const isSelected = Number(workHours) === preset;
+                      return (
+                        <button
+                          type="button"
+                          key={preset}
+                          onClick={() => setWorkHours(preset)}
+                          className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer border ${
+                            isSelected
+                              ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
+                              : 'bg-white text-slate-700 border-slate-200 hover:border-amber-400 hover:bg-amber-50/50'
+                          }`}
+                        >
+                          {preset}h
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Interactive Start/End Time Calculator (when toggled) */}
+                {showTimeCalculator && (() => {
+                  const calculated = calculateShiftHours(calcStartTime, calcEndTime, calcBreakMinutes);
+                  return (
+                    <div className="pt-3 border-t border-amber-200/70 space-y-2.5 animate-in fade-in">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-amber-950 flex items-center gap-1">
+                          <Calculator className="w-3.5 h-3.5 text-amber-700" />
+                          Shift Time Calculator
+                        </span>
+                        <span className="text-[10px] text-slate-500">Computes exact decimal hours</span>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Start Time</label>
+                          <input
+                            type="time"
+                            value={calcStartTime}
+                            onChange={(e) => setCalcStartTime(e.target.value)}
+                            className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 mb-0.5">End Time</label>
+                          <input
+                            type="time"
+                            value={calcEndTime}
+                            onChange={(e) => setCalcEndTime(e.target.value)}
+                            className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Unpaid Break</label>
+                          <select
+                            value={calcBreakMinutes}
+                            onChange={(e) => setCalcBreakMinutes(Number(e.target.value))}
+                            className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          >
+                            <option value={0}>0 min</option>
+                            <option value={15}>15 min</option>
+                            <option value={30}>30 min</option>
+                            <option value={45}>45 min</option>
+                            <option value={60}>60 min</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between p-2.5 bg-white rounded-xl border border-amber-200">
+                        <div className="text-xs">
+                          <span className="text-slate-500 font-medium">Calculated: </span>
+                          <strong className="font-bold text-amber-900">{calculated} hours</strong>
+                          {calcBreakMinutes > 0 && (
+                            <span className="text-[10px] text-slate-400 ml-1">(-{calcBreakMinutes}m break)</span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setWorkHours(calculated);
+                            const formattedRange = `${calcStartTime} – ${calcEndTime}${calcBreakMinutes > 0 ? ` (${calcBreakMinutes}m break)` : ''}`;
+                            setIsCustomShiftTiming(true);
+                            setCustomShiftTiming(formattedRange);
+                          }}
+                          className="px-2.5 py-1 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors cursor-pointer shadow-2xs flex items-center gap-1"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Apply {calculated} hrs</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Shift Timing</label>
                   <select
-                    value={workShiftTiming}
-                    onChange={(e) => setWorkShiftTiming(e.target.value)}
+                    value={isCustomShiftTiming ? 'Custom / Manual Timing' : workShiftTiming}
+                    onChange={(e) => {
+                      if (e.target.value === 'Custom / Manual Timing') {
+                        setIsCustomShiftTiming(true);
+                        if (!customShiftTiming) setCustomShiftTiming('08:30 – 17:00');
+                      } else {
+                        setIsCustomShiftTiming(false);
+                        setWorkShiftTiming(e.target.value);
+                      }
+                    }}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium text-slate-900"
                   >
                     <option value="Standard (9am-5pm)">Standard (9am-5pm)</option>
@@ -2420,7 +2634,19 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                     <option value="Night / Graveyard Shift (10pm-6am)">Night / Graveyard Shift (10pm-6am)</option>
                     <option value="12-Hour Long Shift">12-Hour Long Shift</option>
                     <option value="Split Shift / Irregular">Split Shift / Irregular</option>
+                    <option value="Custom / Manual Timing">Custom / Manual Shift Hours...</option>
                   </select>
+                  {isCustomShiftTiming && (
+                    <div className="mt-1.5">
+                      <input
+                        type="text"
+                        value={customShiftTiming}
+                        onChange={(e) => setCustomShiftTiming(e.target.value)}
+                        placeholder="e.g. 08:30 – 17:00 or 7:00 AM – 3:30 PM"
+                        className="w-full px-3 py-1.5 bg-white border border-amber-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium text-slate-900 text-xs"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -2466,12 +2692,13 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
 
               {/* Live Fatigue & Planche Biomechanics Impact Preview */}
               {(() => {
+                const numericHours = Math.max(0.1, Number(workHours) || 8);
                 const preview = getWorkFatigueAnalysis({
                   shiftType: workShiftType,
-                  hoursWorked: workHours,
+                  hoursWorked: numericHours,
                   fatigueLevel: workFatigue,
                   physicalStrain: workPhysicalStrain,
-                  shiftTiming: workShiftTiming,
+                  shiftTiming: isCustomShiftTiming && customShiftTiming.trim() ? customShiftTiming.trim() : workShiftTiming,
                 });
                 return preview ? (
                   <div className="p-3.5 bg-amber-50/80 rounded-xl border border-amber-200/90 space-y-1.5">
