@@ -36,7 +36,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                 <Flame className="w-4 h-4 fill-current" />
               </div>
               <span className="text-lg sm:text-xl font-black tracking-tight text-slate-900 group-hover:text-blue-600 transition-colors whitespace-nowrap">
-                PlancheLab
+                Statics Lab
               </span>
               <span className="hidden sm:inline-block text-[10px] font-bold uppercase tracking-wider text-blue-700 bg-blue-50 border border-blue-200/80 px-1.5 py-0.5 rounded">
                 Mastery

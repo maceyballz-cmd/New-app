@@ -86,14 +86,14 @@ export const PrintDocument: React.FC<PrintDocumentProps> = ({
         <div className="flex items-center justify-between gap-4 mb-2">
           <div className="flex items-center gap-2">
             <span className="text-base font-black tracking-tight text-slate-900 uppercase">
-              PlancheLab Mastery
+              Statics Lab Mastery
             </span>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-900 uppercase tracking-wider">
               {workout.intensityLabel}
             </span>
           </div>
           <div className="text-[10px] text-slate-500 font-mono">
-            Printed: {currentDate} · PlancheLab Program System
+            Printed: {currentDate} · Statics Lab Program System
           </div>
         </div>
 
@@ -645,7 +645,7 @@ export const PrintDocument: React.FC<PrintDocumentProps> = ({
           PRINT DOCUMENT FOOTER
           ============================================================ */}
       <footer className="pt-4 border-t border-slate-300 text-center text-[10px] text-slate-500 font-mono">
-        PlancheLab Mastery Program · High-Frequency Submaximal Calisthenics System · All rights reserved.
+        Statics Lab Mastery Program · High-Frequency Submaximal Calisthenics System · All rights reserved.
       </footer>
     </div>
   );

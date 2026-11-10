@@ -14,8 +14,8 @@ export default defineConfig(() => {
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
         manifest: {
           id: '/',
-          name: 'PlancheLab - Straddle Planche & Calisthenics Program',
-          short_name: 'PlancheLab',
+          name: 'Statics Lab - Calisthenics & Isometric Strength Program',
+          short_name: 'Statics Lab',
           description:
             'Submaximal calisthenics training system featuring interactive workout timers, form cues, RPE calculator, and activity calendar.',
           theme_color: '#2563eb',

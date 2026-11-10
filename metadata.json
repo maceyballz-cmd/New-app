@@ -1,5 +1,5 @@
 {
-  "name": "Straddle Planche & HSPU Master Program",
+  "name": "Statics Lab",
   "description": "Submaximal calisthenics training system featuring interactive workout timers, form cues, RPE calculator, and print-ready PDF export.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

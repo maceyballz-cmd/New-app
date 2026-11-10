@@ -66,7 +66,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           type="button"
           onClick={handleButtonClick}
           className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-slate-700 hover:text-blue-600 bg-slate-100 hover:bg-blue-50 border border-slate-200/90 hover:border-blue-200 rounded-xl transition-all cursor-pointer shadow-2xs ${className}`}
-          title="Download and install PlancheLab as a desktop app"
+          title="Download and install Statics Lab as a desktop app"
         >
           <Monitor className="w-3.5 h-3.5 text-blue-600" />
           <span className="hidden sm:inline">Download Desktop App</span>
@@ -96,7 +96,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           <div>
             <div className="text-xs font-bold">App Installed Successfully!</div>
             <div className="text-[11px] text-slate-300">
-              PlancheLab is now ready on your desktop and dock.
+              Statics Lab is now ready on your desktop and dock.
             </div>
           </div>
         </div>
@@ -115,7 +115,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-lg font-bold text-slate-900">
-                      Download PlancheLab for Desktop
+                      Download Statics Lab for Desktop
                     </h3>
                     <span className="px-2 py-0.5 text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-md">
                       PWA Desktop
@@ -214,7 +214,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                     Click the <strong>Install</strong> icon (a small computer screen with a down arrow <Download className="w-3 h-3 inline text-slate-700" />).
                   </li>
                   <li>
-                    Click <strong>Install</strong> when prompted. PlancheLab will immediately open in its own desktop window and add a shortcut to your desktop & applications menu.
+                    Click <strong>Install</strong> when prompted. Statics Lab will immediately open in its own desktop window and add a shortcut to your desktop & applications menu.
                   </li>
                 </ol>
               </div>
@@ -229,7 +229,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                   <li>In the top Mac menu bar, click <strong>File</strong>.</li>
                   <li>Select <strong>Add to Dock...</strong></li>
                   <li>
-                    Confirm the name <strong>PlancheLab</strong> and click <strong>Add</strong>. It will sit in your macOS Dock and Launchpad like any native Mac app!
+                    Confirm the name <strong>Statics Lab</strong> and click <strong>Add</strong>. It will sit in your macOS Dock and Launchpad like any native Mac app!
                   </li>
                 </ol>
               </div>
