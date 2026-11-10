@@ -6,6 +6,7 @@ import {
   setDoc,
   deleteDoc,
   getDocs,
+  getDoc,
   onSnapshot,
   writeBatch,
 } from 'firebase/firestore';
@@ -23,6 +24,7 @@ import { CalendarDayLog } from '../components/WorkoutCalendarView';
 import { WorkoutType, WorkoutProgram, getWorkoutProgram, saveWorkoutProgram } from '../data/programData';
 
 export interface LogEntry {
+  id?: string;
   date: string;
   completedSets: number;
   totalSets: number;
@@ -61,7 +63,10 @@ interface SyncContextType {
   loginWithRedirect: () => Promise<void>;
   logout: () => Promise<void>;
   syncNow: () => Promise<void>;
-  saveWorkoutLogToCloud: (log: LogEntry) => Promise<void>;
+  loadAllUserDataFromCloud: (uid?: string) => Promise<void>;
+  saveWorkoutLogToCloud: (log: LogEntry, docId?: string) => Promise<void>;
+  deleteWorkoutLogFromCloud: (logId: string) => Promise<void>;
+  deleteWorkoutLogsByDateFromCloud: (targetDate: string) => Promise<void>;
   clearWorkoutHistoryInCloud: () => Promise<void>;
   saveCalendarLogToCloud: (log: CalendarDayLog) => Promise<void>;
   deleteCalendarLogFromCloud: (logId: string) => Promise<void>;
@@ -90,8 +95,222 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setErrorMessage(null);
   }, []);
 
-  // Track if we are currently applying remote updates to avoid circular loops
-  const isApplyingRemoteRef = useRef<boolean>(false);
+  // Track remote write in-flight states per collection to prevent local state loops
+  const isApplyingWorkoutLogsRef = useRef<boolean>(false);
+  const isApplyingCalendarRef = useRef<boolean>(false);
+  const isApplyingWeeksRef = useRef<boolean>(false);
+
+  // Load all user data from Firestore into local storage and trigger UI updates
+  const loadAllUserDataFromCloud = useCallback(async (targetUid?: string) => {
+    const uid = targetUid || user?.uid;
+    if (!uid) return;
+
+    try {
+      setSyncStatus('syncing');
+
+      // 1. Fetch Workout Logs
+      const workoutSnap = await getDocs(collection(db, 'users', uid, 'workoutLogs'));
+      const remoteLogs: LogEntry[] = [];
+      workoutSnap.forEach((docSnap) => {
+        const data = docSnap.data();
+        remoteLogs.push({
+          id: data.id || docSnap.id,
+          date: data.date,
+          completedSets: Number(data.completedSets || 0),
+          totalSets: Number(data.totalSets || 0),
+          progressPercent: Number(data.progressPercent || 0),
+          targetRpe: data.targetRpe || 'RPE 8',
+          notes: data.notes || '',
+          workoutName: data.workoutName || 'Frog Planche Focus',
+          workoutIntensity: data.workoutIntensity || '50–60% Submaximal',
+        });
+      });
+      remoteLogs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      if (remoteLogs.length > 0) {
+        localStorage.setItem('planche_workout_history', JSON.stringify(remoteLogs));
+        window.dispatchEvent(new Event('planche_history_updated'));
+      }
+
+      // 2. Fetch Calendar Logs
+      const calSnap = await getDocs(collection(db, 'users', uid, 'calendarLogs'));
+      const calMap: Record<string, CalendarDayLog> = {};
+      let calCount = 0;
+      calSnap.forEach((docSnap) => {
+        const data = docSnap.data();
+        const logDate = data.date;
+        if (logDate) {
+          calCount += 1;
+          let workoutList: any[] = [];
+          if (data.allWorkoutsJson) {
+            try {
+              workoutList = JSON.parse(data.allWorkoutsJson);
+            } catch {
+              workoutList = [];
+            }
+          }
+          if (workoutList.length === 0 && (data.type === 'workout' || data.completedSets > 0 || data.workoutName)) {
+            workoutList = [{
+              workoutName: data.workoutName || '',
+              workoutIntensity: data.workoutIntensity || '',
+              durationMinutes: data.durationMinutes || 0,
+              completedSets: data.completedSets || 0,
+              totalSets: data.totalSets || 0,
+              targetRpe: data.targetRpe || '',
+              notes: data.notes || '',
+            }];
+          }
+
+          let symptomList: any[] = [];
+          if (data.allSymptomsJson) {
+            try {
+              symptomList = JSON.parse(data.allSymptomsJson);
+            } catch {
+              symptomList = [];
+            }
+          }
+          if (symptomList.length === 0 && (data.type === 'symptom' || data.hasFndAttack || data.symptomSeverity)) {
+            symptomList = [{
+              severity: data.symptomSeverity || 'High Symptom Attack',
+              attackType: data.symptomAttackType || 'FND Attack Spike',
+              duration: data.symptomDuration || '',
+              triggers: data.symptomTriggers || '',
+              workoutImpact: data.symptomWorkoutImpact || '',
+              notes: data.symptomNotes || data.notes || '',
+            }];
+          }
+
+          const hasWorkout = workoutList.length > 0;
+          const hasRest = Boolean(data.hasRest || data.type === 'rest' || data.restType);
+          const hasWork = Boolean(data.isWorkDay || data.type === 'work' || data.workHours > 0 || data.shiftType);
+          const hasFnd = Boolean(symptomList.length > 0 || data.hasFndAttack || data.type === 'symptom');
+          const isMulti = ((hasWorkout ? 1 : 0) + (hasRest ? 1 : 0) + (hasWork ? 1 : 0) + (hasFnd ? 1 : 0) > 1) || workoutList.length > 1 || data.type === 'multi';
+
+          calMap[logDate] = {
+            id: data.id || docSnap.id,
+            date: logDate,
+            type: isMulti ? 'multi' : data.type === 'rest' ? 'rest' : data.type === 'work' ? 'work' : data.type === 'symptom' ? 'symptom' : 'workout',
+            isWorkDay: hasWork,
+            hasFndAttack: hasFnd,
+            hasRest,
+            hasWorkout,
+            workoutList: workoutList.length > 0 ? workoutList : undefined,
+            workoutDetails: workoutList[0],
+            restDetails: hasRest ? {
+              restType: (data.restType as any) || 'Full Rest',
+              sleepQuality: data.sleepQuality,
+              fatigueLevel: data.fatigueLevel,
+              notes: data.notes,
+            } : undefined,
+            workDetails: hasWork ? {
+              shiftType: data.shiftType || 'Standard Shift',
+              hoursWorked: data.workHours || 8,
+              fatigueLevel: data.workFatigue || 'Moderate Drain (3/5)',
+              physicalStrain: data.physicalStrain || 'Standing / Movement',
+              notes: data.notes || '',
+            } : undefined,
+            symptomList: symptomList.length > 0 ? symptomList : undefined,
+            symptomDetails: symptomList[0],
+            createdAt: data.createdAt,
+          };
+        }
+      });
+      if (calCount > 0) {
+        localStorage.setItem('planche_calendar_logs', JSON.stringify(calMap));
+        window.dispatchEvent(new Event('planche_calendar_updated'));
+        window.dispatchEvent(new Event('planche_history_updated'));
+      }
+
+      // 3. Fetch Transformation Meta & Weeks
+      let metaStartDate = '';
+      try {
+        const metaDoc = await getDoc(doc(db, 'users', uid, 'transformationMeta', 'settings'));
+        if (metaDoc.exists()) {
+          metaStartDate = metaDoc.data()?.startDate || '';
+        }
+      } catch {
+        // ignore
+      }
+
+      const transSnap = await getDocs(collection(db, 'users', uid, 'transformationWeeks'));
+      if (!transSnap.empty) {
+        const weekEntries: WeeklyProgressEntry[] = [];
+        transSnap.forEach((docSnap) => {
+          const data = docSnap.data();
+          weekEntries.push({
+            weekNumber: Number(data.weekNumber),
+            weekLabel: data.weekLabel,
+            date: data.date,
+            isMilestone: data.weekNumber === 0 || data.weekNumber === 4 || data.weekNumber === 8 || data.weekNumber === 12,
+            weight: data.weight || '',
+            chest: data.chest || '',
+            rightArm: data.rightArm || '',
+            leftArm: data.leftArm || '',
+            navelAbove: data.navelAbove || '',
+            navelAt: data.navelAt || '',
+            navelBelow: data.navelBelow || '',
+            hips: data.hips || '',
+            rightThigh: data.rightThigh || '',
+            leftThigh: data.leftThigh || '',
+            height: data.height || '',
+            targetRateWeight: '',
+            targetDailySteps: '',
+            actualDailySteps: '',
+            trainingTime: '',
+            mealTimes: '',
+            trainingDayCalories: data.trainingDayCalories || '',
+            trainingDayMacros: data.trainingDayMacros || '',
+            restDayCalories: data.restDayCalories || '',
+            restDayMacros: data.restDayMacros || '',
+            calorieAdherence: '',
+            trainingAdherence: '',
+            sleepScore: data.sleepScore || '',
+            stressScore: data.stressScore || '',
+            hungerScore: data.hungerScore || '',
+            fatigueScore: data.fatigueScore || '',
+            keySkillProgress: data.keySkillProgress || '',
+            photos: {
+              front: data.photoFront,
+              back: data.photoBack,
+              leftSide: data.photoLeftSide,
+              rightSide: data.photoRightSide,
+            },
+          });
+        });
+        weekEntries.sort((a, b) => a.weekNumber - b.weekNumber);
+        const effectiveStartDate = metaStartDate || weekEntries[0]?.date || '2026-10-17';
+        saveStoredTransformationData(effectiveStartDate, weekEntries);
+        window.dispatchEvent(new Event('planche_transformation_updated'));
+      }
+
+      // 4. Fetch Custom Workouts
+      const workoutsSnap = await getDocs(collection(db, 'users', uid, 'customWorkouts'));
+      workoutsSnap.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data.workoutJson) {
+          try {
+            const parsed = JSON.parse(data.workoutJson);
+            if (parsed && parsed.phases) {
+              saveWorkoutProgram(parsed);
+            }
+          } catch {
+            // ignore
+          }
+        }
+      });
+
+      setStats({
+        workoutLogsCount: remoteLogs.length,
+        calendarLogsCount: calCount,
+        hasTransformation: !transSnap.empty,
+      });
+
+      setSyncStatus('synced');
+      setLastSyncedAt(new Date());
+    } catch (err) {
+      console.error('Error loading all user data from cloud:', err);
+      setSyncStatus('error');
+    }
+  }, [user]);
 
   // Monitor Auth State
   useEffect(() => {
@@ -116,13 +335,16 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (err) {
           console.warn('Could not update user doc:', err);
         }
+
+        // Immediately load user's entire cloud library
+        loadAllUserDataFromCloud(currentUser.uid);
       } else {
         setSyncStatus('idle');
       }
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [loadAllUserDataFromCloud]);
 
   // Sync initial local data into cloud if cloud collections are brand new
   const uploadLocalDataIfEmpty = useCallback(async (uid: string) => {
@@ -138,7 +360,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (historySnap.empty && localHistory.length > 0) {
             const batch = writeBatch(db);
             localHistory.forEach((item, idx) => {
-              const logId = `log_${idx}_${Date.now()}`;
+              const logId = item.id ? String(item.id).replace(/[^a-zA-Z0-9_-]/g, '_') : `log_${idx}_${Date.now()}`;
               const docRef = doc(db, 'users', uid, 'workoutLogs', logId);
               batch.set(docRef, {
                 id: logId,
@@ -293,7 +515,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Listen to remote changes in real time (bi-directional sync with desktop and web)
+  // Listen to remote changes in real time (bi-directional sync across devices and tabs)
   useEffect(() => {
     if (!user) {
       setSyncStatus('idle');
@@ -313,28 +535,28 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
           snapshot.forEach((docSnap) => {
             const data = docSnap.data();
             remoteLogs.push({
+              id: data.id || docSnap.id,
               date: data.date,
-              completedSets: data.completedSets,
-              totalSets: data.totalSets,
-              progressPercent: data.progressPercent,
-              targetRpe: data.targetRpe,
-              notes: data.notes,
-              workoutName: data.workoutName,
-              workoutIntensity: data.workoutIntensity,
+              completedSets: Number(data.completedSets || 0),
+              totalSets: Number(data.totalSets || 0),
+              progressPercent: Number(data.progressPercent || 0),
+              targetRpe: data.targetRpe || 'RPE 8',
+              notes: data.notes || '',
+              workoutName: data.workoutName || 'Frog Planche Focus',
+              workoutIntensity: data.workoutIntensity || '50–60% Submaximal',
             });
           });
 
           remoteLogs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
           setStats((prev) => ({ ...prev, workoutLogsCount: remoteLogs.length }));
 
-          if (!isApplyingRemoteRef.current && remoteLogs.length > 0) {
-            isApplyingRemoteRef.current = true;
+          if (!isApplyingWorkoutLogsRef.current && remoteLogs.length > 0) {
+            isApplyingWorkoutLogsRef.current = true;
             localStorage.setItem('planche_workout_history', JSON.stringify(remoteLogs));
             window.dispatchEvent(new Event('planche_history_updated'));
             setTimeout(() => {
-              isApplyingRemoteRef.current = false;
-            }, 300);
+              isApplyingWorkoutLogsRef.current = false;
+            }, 100);
           }
 
           setSyncStatus('synced');
@@ -348,7 +570,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     );
 
-    // 2. Listen to Calendar Logs (stored locally as Record<string, CalendarDayLog>)
+    // 2. Listen to Calendar Logs
     const pathCal = `users/${uid}/calendarLogs`;
     const unsubCalendar = onSnapshot(
       collection(db, 'users', uid, 'calendarLogs'),
@@ -439,14 +661,14 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           setStats((prev) => ({ ...prev, calendarLogsCount: count }));
 
-          if (!isApplyingRemoteRef.current && count > 0) {
-            isApplyingRemoteRef.current = true;
+          if (!isApplyingCalendarRef.current && count > 0) {
+            isApplyingCalendarRef.current = true;
             localStorage.setItem('planche_calendar_logs', JSON.stringify(calMap));
             window.dispatchEvent(new Event('planche_calendar_updated'));
             window.dispatchEvent(new Event('planche_history_updated'));
             setTimeout(() => {
-              isApplyingRemoteRef.current = false;
-            }, 300);
+              isApplyingCalendarRef.current = false;
+            }, 100);
           }
 
           setSyncStatus('synced');
@@ -514,14 +736,14 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
             weekEntries.sort((a, b) => a.weekNumber - b.weekNumber);
             setStats((prev) => ({ ...prev, hasTransformation: true }));
 
-            if (!isApplyingRemoteRef.current) {
-              isApplyingRemoteRef.current = true;
+            if (!isApplyingWeeksRef.current) {
+              isApplyingWeeksRef.current = true;
               const currentData = getStoredTransformationData();
               saveStoredTransformationData(currentData.startDate, weekEntries);
               window.dispatchEvent(new Event('planche_transformation_updated'));
               setTimeout(() => {
-                isApplyingRemoteRef.current = false;
-              }, 300);
+                isApplyingWeeksRef.current = false;
+              }, 100);
             }
 
             setSyncStatus('synced');
@@ -573,11 +795,12 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user, uploadLocalDataIfEmpty]);
 
   // Actions
-  const saveWorkoutLogToCloud = async (log: LogEntry) => {
+  const saveWorkoutLogToCloud = async (log: LogEntry, docId?: string) => {
     if (!user) return;
     try {
       setSyncStatus('syncing');
-      const cleanId = `log_${Date.now()}`;
+      const targetId = docId || log.id || `log_${Date.now()}`;
+      const cleanId = String(targetId).replace(/[^a-zA-Z0-9_-]/g, '_');
       const docRef = doc(db, 'users', user.uid, 'workoutLogs', cleanId);
       await setDoc(docRef, {
         id: cleanId,
@@ -597,6 +820,46 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       console.error('Error saving workout log to cloud:', err);
       handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/workoutLogs`);
+    }
+  };
+
+  const deleteWorkoutLogFromCloud = async (logId: string) => {
+    if (!user) return;
+    try {
+      setSyncStatus('syncing');
+      const cleanId = String(logId).replace(/[^a-zA-Z0-9_-]/g, '_');
+      await deleteDoc(doc(db, 'users', user.uid, 'workoutLogs', cleanId));
+      setSyncStatus('synced');
+      setLastSyncedAt(new Date());
+    } catch (err) {
+      console.error('Error deleting workout log from cloud:', err);
+      handleFirestoreError(err, OperationType.DELETE, `users/${user.uid}/workoutLogs/${logId}`);
+    }
+  };
+
+  const deleteWorkoutLogsByDateFromCloud = async (targetDate: string) => {
+    if (!user) return;
+    try {
+      setSyncStatus('syncing');
+      const snap = await getDocs(collection(db, 'users', user.uid, 'workoutLogs'));
+      const batch = writeBatch(db);
+      let count = 0;
+      const sanitizedTargetDate = targetDate.replace(/[^a-zA-Z0-9_-]/g, '_');
+      snap.forEach((d) => {
+        const data = d.data();
+        const logDate = data.date ? data.date.slice(0, 10) : '';
+        if (logDate === targetDate || d.id.includes(sanitizedTargetDate)) {
+          batch.delete(d.ref);
+          count++;
+        }
+      });
+      if (count > 0) {
+        await batch.commit();
+      }
+      setSyncStatus('synced');
+      setLastSyncedAt(new Date());
+    } catch (err) {
+      console.error('Error deleting workout logs by date from cloud:', err);
     }
   };
 
@@ -849,7 +1112,10 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loginWithRedirect,
         logout,
         syncNow,
+        loadAllUserDataFromCloud,
         saveWorkoutLogToCloud,
+        deleteWorkoutLogFromCloud,
+        deleteWorkoutLogsByDateFromCloud,
         clearWorkoutHistoryInCloud,
         saveCalendarLogToCloud,
         deleteCalendarLogFromCloud,

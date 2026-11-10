@@ -132,7 +132,13 @@ export const getDurationMinsFromWorkout = (workout: WorkoutProgram): number => {
 };
 
 export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ currentWorkout }) => {
-  const { saveCalendarLogToCloud, deleteCalendarLogFromCloud } = useSync();
+  const {
+    saveCalendarLogToCloud,
+    deleteCalendarLogFromCloud,
+    saveWorkoutLogToCloud,
+    deleteWorkoutLogFromCloud,
+    deleteWorkoutLogsByDateFromCloud,
+  } = useSync();
   const today = useMemo(() => new Date(), []);
   const todayKey = useMemo(() => formatDateToKey(today), [today]);
 
@@ -694,11 +700,13 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
     saveCalendarLogs(updated);
     saveCalendarLogToCloud(newLog);
 
-    // Sync with workout history so the history list right above reflects this workout
+    // Sync with workout history so the history list right above reflects this workout and saves to cloud
     try {
+      const workoutHistoryId = `log_cal_${wDate.replace(/[^a-zA-Z0-9_-]/g, '_')}_${editingWorkoutIndex !== null ? editingWorkoutIndex : currentWorkouts.length - 1}`;
       const rawHistory = localStorage.getItem(STORAGE_WORKOUT_HISTORY_KEY);
-      const historyList: any[] = rawHistory ? JSON.parse(rawHistory) : [];
+      let historyList: any[] = rawHistory ? JSON.parse(rawHistory) : [];
       const historyEntry = {
+        id: workoutHistoryId,
         date: new Date(`${wDate}T12:00:00`).toISOString(),
         completedSets: Number(wCompletedSets) || 18,
         totalSets: Number(wTotalSets) || 18,
@@ -708,9 +716,22 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
         workoutName: wName,
         workoutIntensity: wIntensity,
       };
-      historyList.unshift(historyEntry);
+
+      // If editing an existing workout, update that index/entry in history, else prepend
+      const existingIdx = historyList.findIndex(
+        (h) => h.id === workoutHistoryId || (h.date && h.date.startsWith(wDate) && editingWorkoutIndex === 0)
+      );
+      if (existingIdx !== -1) {
+        historyList[existingIdx] = historyEntry;
+      } else {
+        historyList.unshift(historyEntry);
+      }
+
       localStorage.setItem(STORAGE_WORKOUT_HISTORY_KEY, JSON.stringify(historyList));
       window.dispatchEvent(new Event('planche_history_updated'));
+
+      // Automatically sync this workout log to the user's cloud account
+      saveWorkoutLogToCloud(historyEntry, workoutHistoryId);
     } catch (err) {
       console.error('Failed to sync with history', err);
     }
@@ -873,6 +894,23 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
     const current = [...getDayWorkouts(existing)];
     current.splice(index, 1);
 
+    const targetLogId = `log_cal_${targetDate.replace(/[^a-zA-Z0-9_-]/g, '_')}_${index}`;
+    // Also remove from local workout history and delete from cloud
+    try {
+      const rawHistory = localStorage.getItem(STORAGE_WORKOUT_HISTORY_KEY);
+      if (rawHistory) {
+        const historyList: any[] = JSON.parse(rawHistory);
+        const filtered = historyList.filter(
+          (h) => h.id !== targetLogId && !(h.date && h.date.startsWith(targetDate) && index === 0 && current.length === 0)
+        );
+        localStorage.setItem(STORAGE_WORKOUT_HISTORY_KEY, JSON.stringify(filtered));
+        window.dispatchEvent(new Event('planche_history_updated'));
+      }
+      deleteWorkoutLogFromCloud(targetLogId);
+    } catch (err) {
+      console.error('Failed to remove workout item from history', err);
+    }
+
     const symptoms = getDaySymptoms(existing);
     const hasWork = Boolean(existing.workDetails || existing.isWorkDay);
     const hasRest = Boolean(existing.restDetails);
@@ -989,17 +1027,20 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
     saveCalendarLogs(updated);
     deleteCalendarLogFromCloud(targetDate);
 
-    // Also remove from workout history if it was a workout
+    // Also remove from workout history if it was a workout and sync removal to cloud
     try {
       const rawHistory = localStorage.getItem(STORAGE_WORKOUT_HISTORY_KEY);
       if (rawHistory) {
         const historyList: any[] = JSON.parse(rawHistory);
-        const filtered = historyList.filter((h) => formatDateToKey(new Date(h.date)) !== targetDate);
+        const filtered = historyList.filter(
+          (h) => formatDateToKey(new Date(h.date)) !== targetDate && !(h.date && h.date.startsWith(targetDate))
+        );
         localStorage.setItem(STORAGE_WORKOUT_HISTORY_KEY, JSON.stringify(filtered));
         window.dispatchEvent(new Event('planche_history_updated'));
       }
-    } catch {
-      // ignore
+      deleteWorkoutLogsByDateFromCloud(targetDate);
+    } catch (err) {
+      console.error('Failed to remove workout history on delete date', err);
     }
 
     setDeleteConfirmDate(null);
