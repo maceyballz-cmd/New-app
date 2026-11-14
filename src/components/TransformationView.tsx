@@ -31,6 +31,7 @@ import {
   getStoredTransformationData,
   saveStoredTransformationData,
 } from '../data/transformationData';
+import { CalorieCalculator } from './CalorieCalculator';
 
 export const TransformationView: React.FC = () => {
   const { saveTransformationToCloud } = useSync();
@@ -109,6 +110,35 @@ export const TransformationView: React.FC = () => {
     const nextData = { ...data, entries: updatedEntries };
     setData(nextData);
     persistChanges(data.startDate, updatedEntries);
+  };
+
+  // Apply calculated daily calories to selected transformation week
+  const handleApplyCalculatorCalories = (
+    weekNumber: number,
+    dailyCalories: number,
+    goalLabel: string
+  ) => {
+    const targetEntry = data.entries.find((e) => e.weekNumber === weekNumber);
+    const updatedEntries = data.entries.map((entry) => {
+      if (entry.weekNumber === weekNumber) {
+        return {
+          ...entry,
+          trainingDayCalories: String(dailyCalories),
+          restDayCalories: String(dailyCalories),
+        };
+      }
+      return entry;
+    });
+
+    const nextData = { ...data, entries: updatedEntries };
+    setData(nextData);
+    persistChanges(
+      data.startDate,
+      updatedEntries,
+      `Applied ${goalLabel} (${dailyCalories.toLocaleString('en-US')} kcal/day) to ${
+        targetEntry?.weekLabel || `Week ${weekNumber}`
+      }`
+    );
   };
 
   // Open in-app Reset modal
@@ -582,6 +612,13 @@ export const TransformationView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Calorie & Lifestyle TDEE Calculator */}
+      <CalorieCalculator
+        initialWeightLbs={currentWeight}
+        entries={data.entries}
+        onApplyCalories={handleApplyCalculatorCalories}
+      />
 
       {/* SUB-VIEW 1: Interactive Spreadsheet Table */}
       {activeSubTab === 'spreadsheet' && (
