@@ -31,12 +31,103 @@ interface SetLog {
 interface WorkoutSessionCompanionProps {
   workout: WorkoutProgram;
   initialExerciseId?: string;
+  onInitialExerciseConsumed?: () => void;
   onFinishWorkout?: () => void;
+}
+
+function loadSavedProgress(program: WorkoutProgram): Record<string, boolean[]> {
+  const exercises = program.phases.flatMap((p) => p.exercises);
+  const initial: Record<string, boolean[]> = {};
+  exercises.forEach((ex) => {
+    initial[ex.id] = new Array(ex.defaultSets || 1).fill(false);
+  });
+
+  try {
+    const saved = localStorage.getItem(`planche_active_progress_${program.id}`);
+    if (saved) {
+      const parsed = JSON.parse(saved) as Record<string, boolean[]>;
+      if (parsed && typeof parsed === 'object') {
+        exercises.forEach((ex) => {
+          const count = ex.defaultSets || 1;
+          const savedArr = parsed[ex.id];
+          if (Array.isArray(savedArr)) {
+            initial[ex.id] = Array.from({ length: count }, (_, idx) => Boolean(savedArr[idx]));
+          }
+        });
+      }
+    }
+  } catch {
+    // fallback to clean initial state
+  }
+  return initial;
+}
+
+function loadSavedExerciseIdx(program: WorkoutProgram, initialExerciseId?: string): number {
+  const exercises = program.phases.flatMap((p) => p.exercises);
+  if (initialExerciseId) {
+    const found = exercises.findIndex((e) => e.id === initialExerciseId);
+    if (found !== -1) return found;
+  }
+  try {
+    const savedIdx = localStorage.getItem(`planche_active_exercise_idx_${program.id}`);
+    if (savedIdx !== null) {
+      const parsed = parseInt(savedIdx, 10);
+      if (!Number.isNaN(parsed) && parsed >= 0 && parsed < exercises.length) {
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return 0;
+}
+
+function loadSavedSessionNotes(programId: string): string {
+  try {
+    return (
+      localStorage.getItem(`planche_live_session_notes_${programId}`) ??
+      localStorage.getItem('planche_live_session_notes') ??
+      ''
+    );
+  } catch {
+    return '';
+  }
+}
+
+function loadSavedRestState(programId: string): {
+  deadline: number | null;
+  totalDuration: number;
+  secondsLeft: number;
+  isActive: boolean;
+} {
+  try {
+    const rawDeadline = localStorage.getItem(`planche_active_rest_deadline_${programId}`);
+    const rawTotal = localStorage.getItem(`planche_active_rest_total_${programId}`);
+    if (rawDeadline) {
+      const deadline = Number(rawDeadline);
+      const remaining = Math.ceil((deadline - Date.now()) / 1000);
+      if (Number.isFinite(deadline) && remaining > 0) {
+        const total = rawTotal ? Number(rawTotal) : remaining;
+        return {
+          deadline,
+          totalDuration: Number.isFinite(total) && total > 0 ? total : remaining,
+          secondsLeft: remaining,
+          isActive: true,
+        };
+      }
+      localStorage.removeItem(`planche_active_rest_deadline_${programId}`);
+      localStorage.removeItem(`planche_active_rest_total_${programId}`);
+    }
+  } catch {
+    // ignore
+  }
+  return { deadline: null, totalDuration: 0, secondsLeft: 0, isActive: false };
 }
 
 export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = ({
   workout,
   initialExerciseId,
+  onInitialExerciseConsumed,
   onFinishWorkout,
 }) => {
   const { saveWorkoutLogToCloud } = useSync();
@@ -44,52 +135,23 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
   const allExercises: Exercise[] = workout.phases.flatMap((p) => p.exercises);
 
   // Active exercise index
-  const [currentIdx, setCurrentIdx] = useState<number>(() => {
-    if (initialExerciseId) {
-      const found = allExercises.findIndex((e) => e.id === initialExerciseId);
-      if (found !== -1) return found;
-    }
-    return 0;
-  });
+  const [currentIdx, setCurrentIdx] = useState<number>(() =>
+    loadSavedExerciseIdx(workout, initialExerciseId)
+  );
 
   const currentExercise = allExercises[currentIdx] || allExercises[0];
 
   // Completed sets tracker: exerciseId -> array of booleans
-  const [exerciseProgress, setExerciseProgress] = useState<Record<string, boolean[]>>(() => {
-    const saved = localStorage.getItem(`planche_active_progress_${workout.id}`);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {
-        // fallback
-      }
-    }
-    const initial: Record<string, boolean[]> = {};
-    allExercises.forEach((ex) => {
-      initial[ex.id] = new Array(ex.defaultSets || 1).fill(false);
-    });
-    return initial;
-  });
+  const [exerciseProgress, setExerciseProgress] = useState<Record<string, boolean[]>>(() =>
+    loadSavedProgress(workout)
+  );
 
-  // Re-sync if workout changes
-  useEffect(() => {
-    const initial: Record<string, boolean[]> = {};
-    allExercises.forEach((ex) => {
-      initial[ex.id] = new Array(ex.defaultSets || 1).fill(false);
-    });
-    setExerciseProgress(initial);
-    setCurrentIdx(0);
-  }, [workout.id]);
-
-  // Save progress to local storage
-  useEffect(() => {
-    localStorage.setItem('planche_active_session_progress', JSON.stringify(exerciseProgress));
-  }, [exerciseProgress]);
-
-  // Rest Timer State
-  const [restSecondsLeft, setRestSecondsLeft] = useState<number>(0);
-  const [totalRestDuration, setTotalRestDuration] = useState<number>(0);
-  const [isRestActive, setIsRestActive] = useState<boolean>(false);
+  // Rest Timer State (deadline-backed so timers stay accurate if app is backgrounded)
+  const initialRest = loadSavedRestState(workout.id);
+  const [restDeadline, setRestDeadline] = useState<number | null>(initialRest.deadline);
+  const [restSecondsLeft, setRestSecondsLeft] = useState<number>(initialRest.secondsLeft);
+  const [totalRestDuration, setTotalRestDuration] = useState<number>(initialRest.totalDuration);
+  const [isRestActive, setIsRestActive] = useState<boolean>(initialRest.isActive);
 
   // Hold Timer State (for isometric holds like Frog Planche or Planche Leans)
   const [isHolding, setIsHolding] = useState<boolean>(false);
@@ -117,9 +179,54 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
   } | null>(null);
 
   // Live session notes that persist with workout log history
-  const [sessionNotes, setSessionNotes] = useState<string>(() => {
-    return localStorage.getItem('planche_live_session_notes') || '';
-  });
+  const [sessionNotes, setSessionNotes] = useState<string>(() =>
+    loadSavedSessionNotes(workout.id)
+  );
+
+  const prevWorkoutIdRef = useRef<string>(workout.id);
+
+  // Re-sync recovered state only when switching to a different workout protocol
+  useEffect(() => {
+    if (prevWorkoutIdRef.current === workout.id) {
+      return;
+    }
+    prevWorkoutIdRef.current = workout.id;
+    setExerciseProgress(loadSavedProgress(workout));
+    setCurrentIdx(loadSavedExerciseIdx(workout, initialExerciseId));
+    setSessionNotes(loadSavedSessionNotes(workout.id));
+    const restoredRest = loadSavedRestState(workout.id);
+    setRestDeadline(restoredRest.deadline);
+    setRestSecondsLeft(restoredRest.secondsLeft);
+    setTotalRestDuration(restoredRest.totalDuration);
+    setIsRestActive(restoredRest.isActive);
+    setWorkoutFinished(false);
+  }, [workout.id]);
+
+  // If caller changes initialExerciseId explicitly, jump to that exercise once
+  useEffect(() => {
+    if (initialExerciseId) {
+      const found = allExercises.findIndex((e) => e.id === initialExerciseId);
+      if (found !== -1) setCurrentIdx(found);
+      onInitialExerciseConsumed?.();
+    }
+  }, [initialExerciseId]);
+
+  // Persist progress & active index under the matching workout-specific keys
+  useEffect(() => {
+    try {
+      localStorage.setItem(`planche_active_progress_${workout.id}`, JSON.stringify(exerciseProgress));
+    } catch {
+      // ignore storage quota errors
+    }
+  }, [exerciseProgress, workout.id]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(`planche_active_exercise_idx_${workout.id}`, String(currentIdx));
+    } catch {
+      // ignore
+    }
+  }, [currentIdx, workout.id]);
 
   const getSetReps = (exerciseId: string, setIdx: number, defaultVal: string) => {
     return customRepsMap[exerciseId]?.[setIdx] || defaultVal;
@@ -147,51 +254,114 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
     setEditingSet(null);
   };
 
-  // Interval reference for rest timer
+  // Interval reference for timers
   const restTimerRef = useRef<number | null>(null);
   const holdTimerRef = useRef<number | null>(null);
   const prepTimerRef = useRef<number | null>(null);
+  const lastBeepedSecondRef = useRef<number | null>(null);
+  const currentExerciseRef = useRef<Exercise>(currentExercise);
+  const exerciseProgressRef = useRef<Record<string, boolean[]>>(exerciseProgress);
 
-  // Handle rest countdown
+  currentExerciseRef.current = currentExercise;
+  exerciseProgressRef.current = exerciseProgress;
+
+  // Clean up hold/prep timers only if component truly unmounts
   useEffect(() => {
-    if (isRestActive && restSecondsLeft > 0) {
-      restTimerRef.current = window.setInterval(() => {
-        setRestSecondsLeft((prev) => {
-          if (prev <= 4 && prev > 1) {
-            sound.playCountdownBeep(600, 0.08);
-          }
-          if (prev <= 1) {
-            clearInterval(restTimerRef.current!);
-            setIsRestActive(false);
-            sound.playSuccessChime();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else {
-      if (restTimerRef.current) clearInterval(restTimerRef.current);
+    return () => {
+      if (prepTimerRef.current) clearInterval(prepTimerRef.current);
+      if (holdTimerRef.current) clearInterval(holdTimerRef.current);
+    };
+  }, []);
+
+  const clearPersistedRest = () => {
+    try {
+      localStorage.removeItem(`planche_active_rest_deadline_${workout.id}`);
+      localStorage.removeItem(`planche_active_rest_total_${workout.id}`);
+    } catch {
+      // ignore
     }
+  };
+
+  // Handle deadline-backed rest countdown (survives mobile backgrounding / lock screen)
+  useEffect(() => {
+    if (!isRestActive || !restDeadline) {
+      if (restTimerRef.current) clearInterval(restTimerRef.current);
+      return;
+    }
+
+    const syncRestRemaining = () => {
+      const remaining = Math.ceil((restDeadline - Date.now()) / 1000);
+      if (remaining <= 0) {
+        if (restTimerRef.current) clearInterval(restTimerRef.current);
+        setRestSecondsLeft(0);
+        setRestDeadline(null);
+        setIsRestActive(false);
+        clearPersistedRest();
+        lastBeepedSecondRef.current = null;
+        sound.playSuccessChime();
+        return;
+      }
+
+      if (remaining <= 3 && lastBeepedSecondRef.current !== remaining) {
+        lastBeepedSecondRef.current = remaining;
+        sound.playCountdownBeep(600, 0.08);
+      }
+      setRestSecondsLeft(remaining);
+    };
+
+    syncRestRemaining();
+    restTimerRef.current = window.setInterval(syncRestRemaining, 500);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        syncRestRemaining();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
     return () => {
       if (restTimerRef.current) clearInterval(restTimerRef.current);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [isRestActive, restSecondsLeft]);
+  }, [isRestActive, restDeadline, workout.id]);
 
   // Start rest timer
   const triggerRest = (seconds: number) => {
+    const deadline = Date.now() + seconds * 1000;
+    lastBeepedSecondRef.current = null;
     setTotalRestDuration(seconds);
     setRestSecondsLeft(seconds);
+    setRestDeadline(deadline);
     setIsRestActive(true);
+    try {
+      localStorage.setItem(`planche_active_rest_deadline_${workout.id}`, String(deadline));
+      localStorage.setItem(`planche_active_rest_total_${workout.id}`, String(seconds));
+    } catch {
+      // ignore
+    }
   };
 
   const cancelRest = () => {
     setIsRestActive(false);
     setRestSecondsLeft(0);
+    setRestDeadline(null);
+    lastBeepedSecondRef.current = null;
+    clearPersistedRest();
   };
 
   const addRestTime = (secondsToAdd: number) => {
-    setRestSecondsLeft((prev) => prev + secondsToAdd);
-    setTotalRestDuration((prev) => prev + secondsToAdd);
+    const baseDeadline = restDeadline && restDeadline > Date.now() ? restDeadline : Date.now();
+    const nextDeadline = baseDeadline + secondsToAdd * 1000;
+    const nextRemaining = Math.max(1, Math.ceil((nextDeadline - Date.now()) / 1000));
+    const nextTotal = totalRestDuration + secondsToAdd;
+    setRestDeadline(nextDeadline);
+    setRestSecondsLeft(nextRemaining);
+    setTotalRestDuration(nextTotal);
+    try {
+      localStorage.setItem(`planche_active_rest_deadline_${workout.id}`, String(nextDeadline));
+      localStorage.setItem(`planche_active_rest_total_${workout.id}`, String(nextTotal));
+    } catch {
+      // ignore
+    }
   };
 
   // Start Hold Exercise with 3s preparation count
@@ -264,15 +434,18 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
   };
 
   const markNextSetComplete = () => {
-    const currentSets = [...(exerciseProgress[currentExercise.id] || [])];
-    const nextIncompleteIdx = currentSets.findIndex((s) => !s);
+    const ex = currentExerciseRef.current;
+    const latestSets = [...(exerciseProgressRef.current[ex.id] || new Array(ex.defaultSets || 1).fill(false))];
+    const nextIncompleteIdx = latestSets.findIndex((s) => !s);
     if (nextIncompleteIdx !== -1) {
-      currentSets[nextIncompleteIdx] = true;
+      latestSets[nextIncompleteIdx] = true;
       setExerciseProgress((prev) => ({
         ...prev,
-        [currentExercise.id]: currentSets,
+        [ex.id]: latestSets,
       }));
-      triggerRest(currentExercise.restSeconds);
+      if (ex.restSeconds > 0) {
+        triggerRest(ex.restSeconds);
+      }
     }
   };
 
@@ -314,11 +487,35 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
     };
     logs.unshift(newEntry);
     localStorage.setItem('planche_workout_history', JSON.stringify(logs.slice(0, 50)));
+    localStorage.removeItem(`planche_active_progress_${workout.id}`);
+    localStorage.removeItem(`planche_active_exercise_idx_${workout.id}`);
+    localStorage.removeItem(`planche_live_session_notes_${workout.id}`);
     localStorage.removeItem('planche_live_session_notes');
+    clearPersistedRest();
+    setRestDeadline(null);
+    setIsRestActive(false);
+    setRestSecondsLeft(0);
     saveWorkoutLogToCloud(newEntry);
     window.dispatchEvent(new Event('planche_history_updated'));
 
     if (onFinishWorkout) onFinishWorkout();
+  };
+
+  const handleStartNewSession = () => {
+    const fresh: Record<string, boolean[]> = {};
+    allExercises.forEach((ex) => {
+      fresh[ex.id] = new Array(ex.defaultSets || 1).fill(false);
+    });
+    setExerciseProgress(fresh);
+    setCurrentIdx(0);
+    setSessionNotes('');
+    setWorkoutFinished(false);
+    cancelHold();
+    cancelRest();
+    localStorage.removeItem(`planche_active_progress_${workout.id}`);
+    localStorage.removeItem(`planche_active_exercise_idx_${workout.id}`);
+    localStorage.removeItem(`planche_live_session_notes_${workout.id}`);
+    localStorage.removeItem('planche_live_session_notes');
   };
 
   const formatTime = (secs: number) => {
@@ -333,6 +530,28 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {workoutFinished && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+          <div className="flex items-start gap-3">
+            <Award className="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" />
+            <div>
+              <h3 className="text-sm font-bold text-emerald-950">
+                Session Logged & Synced ({completedSetsCount}/{totalSetsCount} Sets)
+              </h3>
+              <p className="text-xs text-emerald-800 mt-0.5">
+                Saved to your workout history. You can start a fresh session whenever you&apos;re ready.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleStartNewSession}
+            className="min-h-[44px] sm:min-h-0 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors cursor-pointer shrink-0"
+          >
+            Start New Session
+          </button>
+        </div>
+      )}
       {/* Top Session Progress Bar */}
       <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs font-semibold text-slate-600 mb-2 gap-2">
@@ -369,7 +588,7 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
                   cancelHold();
                   setCurrentIdx(idx);
                 }}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 ${
+                className={`min-h-[40px] sm:min-h-0 px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 ${
                   active
                     ? 'bg-blue-600 text-white shadow-xs'
                     : done
@@ -436,17 +655,17 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
               <button
                 onClick={() => addRestTime(30)}
-                className="px-3 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                className="min-h-[44px] sm:min-h-0 flex-1 sm:flex-initial justify-center px-3.5 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>+30s</span>
               </button>
               <button
                 onClick={cancelRest}
-                className="px-4 py-2 text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-slate-950 rounded-lg transition-colors cursor-pointer"
+                className="min-h-[44px] sm:min-h-0 flex-1 sm:flex-initial justify-center px-4 py-2 text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-slate-950 rounded-lg transition-colors cursor-pointer"
               >
                 Skip Rest & Continue
               </button>
@@ -469,7 +688,7 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
                 setCurrentIdx((prev) => Math.max(0, prev - 1));
               }}
               disabled={currentIdx === 0}
-              className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 transition-colors cursor-pointer"
+              className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 transition-colors cursor-pointer"
               aria-label="Previous Exercise"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -480,7 +699,7 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
                 setCurrentIdx((prev) => Math.min(allExercises.length - 1, prev + 1));
               }}
               disabled={currentIdx === allExercises.length - 1}
-              className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 transition-colors cursor-pointer"
+              className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 transition-colors cursor-pointer"
               aria-label="Next Exercise"
             >
               <ChevronRight className="w-4 h-4" />
@@ -532,21 +751,21 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
 
             <div className="flex items-center gap-3">
               {isPrepActive ? (
-                <div className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg font-bold text-sm">
-                  <span>Get Ready: {prepSeconds}s</span>
+                <div className="flex items-center gap-2 min-h-[44px] px-4 py-2 bg-amber-500 text-white rounded-lg font-bold text-sm">
+                  <span className="font-mono tabular-nums">Get Ready: {prepSeconds}s</span>
                   <button
                     onClick={cancelHold}
-                    className="ml-2 text-xs underline cursor-pointer"
+                    className="ml-2 text-xs underline cursor-pointer py-1 px-1.5"
                   >
                     Cancel
                   </button>
                 </div>
               ) : isHolding ? (
-                <div className="flex items-center gap-3 px-5 py-2.5 bg-blue-600 text-white rounded-lg font-bold">
+                <div className="flex items-center gap-3 min-h-[44px] px-5 py-2.5 bg-blue-600 text-white rounded-lg font-bold">
                   <span className="text-base font-mono tabular-nums">HOLD: {holdCountdown}s</span>
                   <button
                     onClick={cancelHold}
-                    className="ml-2 text-xs bg-blue-700 hover:bg-blue-800 px-2 py-1 rounded cursor-pointer"
+                    className="ml-2 text-xs bg-blue-700 hover:bg-blue-800 px-2.5 py-1.5 rounded cursor-pointer"
                   >
                     Stop
                   </button>
@@ -554,7 +773,7 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
               ) : (
                 <button
                   onClick={() => startHoldRoutine(currentExercise.holdSeconds || 5)}
-                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-xs transition-colors flex items-center gap-2 shadow-xs cursor-pointer"
+                  className="min-h-[44px] sm:min-h-0 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-xs transition-colors flex items-center gap-2 shadow-xs cursor-pointer"
                 >
                   <Play className="w-3.5 h-3.5 fill-current" />
                   <span>Start {currentExercise.holdSeconds || 5}s Hold</span>
@@ -572,7 +791,7 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
             </span>
             <button
               onClick={resetCurrentExerciseSets}
-              className="text-xs text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1 cursor-pointer"
+              className="min-h-[36px] sm:min-h-0 px-2 py-1 text-xs text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1 cursor-pointer"
             >
               <RotateCcw className="w-3 h-3" />
               <span>Reset Sets</span>
@@ -587,7 +806,7 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
                   <button
                     type="button"
                     onClick={() => toggleSet(setIdx)}
-                    className={`w-full p-3.5 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-1.5 ${
+                    className={`w-full min-h-[88px] sm:min-h-0 p-3.5 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-1.5 active:scale-[0.98] ${
                       completed
                         ? 'bg-emerald-50 border-emerald-300 text-emerald-800 shadow-xs'
                         : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50'
@@ -605,7 +824,7 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
                     </span>
                   </button>
 
-                  {/* Small edit reps button under the set */}
+                  {/* Edit reps button under the set */}
                   <button
                     type="button"
                     onClick={(e) => {
@@ -615,7 +834,7 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
                         value: repsValue,
                       });
                     }}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 border border-slate-200/80 hover:border-blue-200 rounded transition-colors cursor-pointer"
+                    className="inline-flex items-center justify-center gap-1 min-h-[36px] px-3 py-1.5 sm:min-h-0 sm:px-2 sm:py-0.5 text-[11px] font-medium text-slate-500 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 border border-slate-200/80 hover:border-blue-200 rounded transition-colors cursor-pointer"
                     title={`Edit reps or hold seconds for Set ${setIdx + 1}`}
                   >
                     <Pencil className="w-2.5 h-2.5 text-slate-400" />
@@ -660,8 +879,13 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
           rows={3}
           value={sessionNotes}
           onChange={(e) => {
-            setSessionNotes(e.target.value);
-            localStorage.setItem('planche_live_session_notes', e.target.value);
+            const val = e.target.value;
+            setSessionNotes(val);
+            try {
+              localStorage.setItem(`planche_live_session_notes_${workout.id}`, val);
+            } catch {
+              // ignore
+            }
           }}
           placeholder="How did you feel today? Note your form quality, lean angle, elbow joint sensation, or reps achieved (e.g. 'Felt snappy on tuck planche. Leaned further on PPPUs with parallettes. Left biceps tendon felt 100% fine. RPE 6')..."
           className="w-full text-xs sm:text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all placeholder:text-slate-400 leading-relaxed"
@@ -780,14 +1004,14 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
           )}
         </div>
 
-        <div className="flex items-center gap-3 w-full sm:w-auto">
+        <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
           {currentIdx < allExercises.length - 1 ? (
             <button
               onClick={() => {
                 cancelHold();
                 setCurrentIdx((prev) => prev + 1);
               }}
-              className="w-full sm:w-auto px-5 py-2.5 text-xs font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1"
+              className="w-full sm:w-auto min-h-[48px] sm:min-h-0 px-5 py-2.5 text-xs font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1"
             >
               <span>Next Exercise</span>
               <ChevronRight className="w-3.5 h-3.5" />
@@ -796,7 +1020,7 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
 
           <button
             onClick={handleFinishWorkout}
-            className="w-full sm:w-auto px-5 py-2.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+            className="w-full sm:w-auto min-h-[48px] sm:min-h-0 px-5 py-2.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
           >
             <CheckCircle2 className="w-4 h-4" />
             <span>Finish & Log Workout</span>

@@ -16,6 +16,8 @@ import { WorkoutLogHistory } from './components/WorkoutLogHistory';
 import { WorkoutCalendarView } from './components/WorkoutCalendarView';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PrintDocument, PrintScope } from './components/PrintDocument';
+import { MobileWorkoutLogger } from './components/MobileWorkoutLogger';
+import { useAppMode } from './hooks/useAppMode';
 import { SyncProvider, useSync } from './context/SyncContext';
 import { sound } from './utils/sound';
 import {
@@ -98,6 +100,15 @@ function MainApp() {
     setCurrentWorkout(loaded);
   };
 
+  // Refresh active workout if custom workouts are synced from Firestore
+  useEffect(() => {
+    const handleWorkoutUpdated = () => {
+      setCurrentWorkout(getWorkoutProgram(activeWorkoutType));
+    };
+    window.addEventListener('planche_workout_updated', handleWorkoutUpdated);
+    return () => window.removeEventListener('planche_workout_updated', handleWorkoutUpdated);
+  }, [activeWorkoutType]);
+
   // Save customized workout changes
   const handleSaveWorkout = (updatedWorkout: WorkoutProgram) => {
     saveWorkoutProgram(updatedWorkout);
@@ -142,7 +153,9 @@ function MainApp() {
   }, [showPrintModal]);
 
   const handleStartSession = (exerciseId?: string) => {
-    setSelectedExerciseId(exerciseId);
+    if (exerciseId) {
+      setSelectedExerciseId(exerciseId);
+    }
     setActiveTab('workout');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -179,13 +192,17 @@ function MainApp() {
           </div>
         )}
 
-        {activeTab === 'workout' && (
+        <div
+          className={activeTab === 'workout' ? 'block' : 'hidden'}
+          aria-hidden={activeTab !== 'workout'}
+        >
           <WorkoutSessionCompanion
             workout={currentWorkout}
             initialExerciseId={selectedExerciseId}
+            onInitialExerciseConsumed={() => setSelectedExerciseId(undefined)}
             onFinishWorkout={() => {}}
           />
-        )}
+        </div>
 
         {activeTab === 'cheatsheet' && (
           <div className="space-y-8">
@@ -435,10 +452,25 @@ function MainApp() {
   );
 }
 
+function AppShell() {
+  const { isMobileInstalledApp } = useAppMode();
+
+  if (isMobileInstalledApp) {
+    return (
+      <>
+        <MobileWorkoutLogger />
+        <OfflineIndicator />
+      </>
+    );
+  }
+
+  return <MainApp />;
+}
+
 export default function App() {
   return (
     <SyncProvider>
-      <MainApp />
+      <AppShell />
     </SyncProvider>
   );
 }

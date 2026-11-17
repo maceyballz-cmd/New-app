@@ -284,6 +284,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // 4. Fetch Custom Workouts
       const workoutsSnap = await getDocs(collection(db, 'users', uid, 'customWorkouts'));
+      let updatedCustomWorkouts = false;
       workoutsSnap.forEach((docSnap) => {
         const data = docSnap.data();
         if (data.workoutJson) {
@@ -291,12 +292,16 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const parsed = JSON.parse(data.workoutJson);
             if (parsed && parsed.phases) {
               saveWorkoutProgram(parsed);
+              updatedCustomWorkouts = true;
             }
           } catch {
             // ignore
           }
         }
       });
+      if (updatedCustomWorkouts) {
+        window.dispatchEvent(new Event('planche_workout_updated'));
+      }
 
       setStats({
         workoutLogsCount: remoteLogs.length,
@@ -764,6 +769,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
       collection(db, 'users', uid, 'customWorkouts'),
       (snapshot) => {
         try {
+          let updatedCustomWorkouts = false;
           snapshot.forEach((docSnap) => {
             const data = docSnap.data();
             if (data.workoutType && data.workoutJson) {
@@ -771,12 +777,16 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 const parsed = JSON.parse(data.workoutJson);
                 if (parsed && parsed.phases) {
                   saveWorkoutProgram(parsed);
+                  updatedCustomWorkouts = true;
                 }
               } catch {
                 // ignore
               }
             }
           });
+          if (updatedCustomWorkouts) {
+            window.dispatchEvent(new Event('planche_workout_updated'));
+          }
         } catch (e) {
           console.warn('Error processing custom workouts:', e);
         }
