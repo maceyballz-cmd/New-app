@@ -27,7 +27,14 @@ import {
   saveStoredNutritionSteps,
 } from '../data/transformationData';
 import { CalendarDayLog } from '../components/WorkoutCalendarView';
-import { WorkoutType, WorkoutProgram, getWorkoutProgram, saveWorkoutProgram } from '../data/programData';
+import {
+  WorkoutType,
+  WorkoutProgram,
+  RoadmapPathFocus,
+  getWorkoutProgram,
+  saveWorkoutProgram,
+  saveStoredRoadmapPathFocus,
+} from '../data/programData';
 
 export interface LogEntry {
   id?: string;
@@ -78,6 +85,7 @@ interface SyncContextType {
   deleteCalendarLogFromCloud: (logId: string) => Promise<void>;
   saveTransformationToCloud: (startDate: string, entries: WeeklyProgressEntry[]) => Promise<void>;
   saveNutritionStepsToCloud: (steps: NutritionHeaderStep[], startDate?: string) => Promise<void>;
+  saveRoadmapPathFocusToCloud: (focus: RoadmapPathFocus) => Promise<void>;
   saveCustomWorkoutToCloud: (workout: WorkoutProgram) => Promise<void>;
 }
 
@@ -240,6 +248,18 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
               if (Array.isArray(parsedSteps) && parsedSteps.length === 3) {
                 saveStoredNutritionSteps(parsedSteps);
                 window.dispatchEvent(new Event('planche_nutrition_steps_updated'));
+              }
+            } catch {
+              // ignore
+            }
+          }
+          if (metaData?.roadmapPathFocusJson) {
+            try {
+              const parsedFocus = JSON.parse(metaData.roadmapPathFocusJson) as RoadmapPathFocus;
+              if (parsedFocus && typeof parsedFocus.workingStepId === 'number') {
+                saveStoredRoadmapPathFocus(parsedFocus);
+                localStorage.setItem('planche_roadmap_active_step_v3', String(parsedFocus.workingStepId));
+                window.dispatchEvent(new Event('planche_roadmap_focus_updated'));
               }
             } catch {
               // ignore
@@ -830,6 +850,14 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 window.dispatchEvent(new Event('planche_nutrition_steps_updated'));
               }
             }
+            if (metaData?.roadmapPathFocusJson) {
+              const parsedFocus = JSON.parse(metaData.roadmapPathFocusJson) as RoadmapPathFocus;
+              if (parsedFocus && typeof parsedFocus.workingStepId === 'number') {
+                saveStoredRoadmapPathFocus(parsedFocus);
+                localStorage.setItem('planche_roadmap_active_step_v3', String(parsedFocus.workingStepId));
+                window.dispatchEvent(new Event('planche_roadmap_focus_updated'));
+              }
+            }
           }
         } catch {
           // ignore
@@ -1098,6 +1126,37 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const saveRoadmapPathFocusToCloud = async (focus: RoadmapPathFocus) => {
+    if (!user) return;
+    try {
+      setSyncStatus('syncing');
+      const effectiveStartDate = (getStoredTransformationData().startDate || '2026-10-17').slice(0, 32);
+      const sanitized: RoadmapPathFocus = {
+        currentTitle: String(focus.currentTitle || '').slice(0, 140),
+        workingStepId: Number(focus.workingStepId || 3),
+        regressionStepId:
+          typeof focus.regressionStepId === 'number' ? Number(focus.regressionStepId) : null,
+        attemptStepId:
+          typeof focus.attemptStepId === 'number' ? Number(focus.attemptStepId) : null,
+      };
+      const metaRef = doc(db, 'users', user.uid, 'transformationMeta', 'settings');
+      await setDoc(
+        metaRef,
+        {
+          userId: user.uid,
+          startDate: effectiveStartDate,
+          roadmapPathFocusJson: JSON.stringify(sanitized).slice(0, 4000),
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      setSyncStatus('synced');
+      setLastSyncedAt(new Date());
+    } catch (err) {
+      console.warn('Error saving roadmap path focus to cloud:', err);
+    }
+  };
+
   const saveCustomWorkoutToCloud = async (workout: WorkoutProgram) => {
     if (!user) return;
     try {
@@ -1208,6 +1267,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
         deleteCalendarLogFromCloud,
         saveTransformationToCloud,
         saveNutritionStepsToCloud,
+        saveRoadmapPathFocusToCloud,
         saveCustomWorkoutToCloud,
       }}
     >

@@ -1165,3 +1165,61 @@ export function getCheatSheetRows(workout: WorkoutProgram) {
 
   return rows;
 }
+
+export interface RoadmapPathFocus {
+  currentTitle: string;
+  workingStepId: number;
+  regressionStepId?: number | null; // null/undefined = auto (step immediately below working)
+  attemptStepId?: number | null; // null/undefined = auto (step immediately above working)
+}
+
+export const DEFAULT_ROADMAP_PATH_TITLE = 'Current Planche Progression';
+const ROADMAP_PATH_FOCUS_KEY = 'planche_roadmap_path_focus_v1';
+
+export function getStoredRoadmapPathFocus(fallbackWorkingStepId: number = 3): RoadmapPathFocus {
+  if (typeof window === 'undefined') {
+    return {
+      currentTitle: DEFAULT_ROADMAP_PATH_TITLE,
+      workingStepId: fallbackWorkingStepId,
+      regressionStepId: null,
+      attemptStepId: null,
+    };
+  }
+  try {
+    const raw = localStorage.getItem(ROADMAP_PATH_FOCUS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        currentTitle:
+          typeof parsed.currentTitle === 'string'
+            ? parsed.currentTitle
+            : DEFAULT_ROADMAP_PATH_TITLE,
+        workingStepId:
+          typeof parsed.workingStepId === 'number' && parsed.workingStepId >= 1
+            ? parsed.workingStepId
+            : fallbackWorkingStepId,
+        regressionStepId:
+          typeof parsed.regressionStepId === 'number' ? parsed.regressionStepId : null,
+        attemptStepId:
+          typeof parsed.attemptStepId === 'number' ? parsed.attemptStepId : null,
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return {
+    currentTitle: DEFAULT_ROADMAP_PATH_TITLE,
+    workingStepId: fallbackWorkingStepId,
+    regressionStepId: null,
+    attemptStepId: null,
+  };
+}
+
+export function saveStoredRoadmapPathFocus(focus: RoadmapPathFocus): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(ROADMAP_PATH_FOCUS_KEY, JSON.stringify(focus));
+  } catch {
+    // ignore
+  }
+}

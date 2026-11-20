@@ -118,6 +118,7 @@
         "startDate": { "type": "string", "maxLength": 32 },
         "unitMode": { "type": "string", "maxLength": 32 },
         "nutritionStepsJson": { "type": "string", "maxLength": 8000 },
+        "roadmapPathFocusJson": { "type": "string", "maxLength": 4000 },
         "updatedAt": { "type": "string", "maxLength": 64 }
       },
       "required": ["userId", "startDate"]

@@ -1,5 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { PROGRESSION_ROADMAP, ProgressionStep } from '../data/programData';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import {
+  PROGRESSION_ROADMAP,
+  ProgressionStep,
+  RoadmapPathFocus,
+  DEFAULT_ROADMAP_PATH_TITLE,
+  getStoredRoadmapPathFocus,
+  saveStoredRoadmapPathFocus,
+} from '../data/programData';
+import { useSync } from '../context/SyncContext';
 import {
   Target,
   CheckCircle2,
@@ -303,6 +311,7 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
   onNavigateTab,
   onStartSession,
 }) => {
+  const { saveRoadmapPathFocusToCloud } = useSync();
   const [activeSubTab, setActiveSubTab] = useState<RoadmapSubTab>('path');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -331,8 +340,79 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
     } catch {
       // ignore
     }
-    return 3;
+    return getStoredRoadmapPathFocus(3).workingStepId;
   });
+
+  const [pathFocus, setPathFocus] = useState<RoadmapPathFocus>(() =>
+    getStoredRoadmapPathFocus(activeStepId)
+  );
+  const focusSyncTimerRef = useRef<number | null>(null);
+
+  const persistPathFocus = (next: RoadmapPathFocus, immediateCloud: boolean = false) => {
+    setPathFocus(next);
+    saveStoredRoadmapPathFocus(next);
+    if (focusSyncTimerRef.current) {
+      clearTimeout(focusSyncTimerRef.current);
+      focusSyncTimerRef.current = null;
+    }
+    if (immediateCloud) {
+      saveRoadmapPathFocusToCloud(next);
+    } else {
+      focusSyncTimerRef.current = window.setTimeout(() => {
+        saveRoadmapPathFocusToCloud(next);
+      }, 600);
+    }
+  };
+
+  const selectWorkingStep = (stepNumber: number, toastMsg?: string) => {
+    setActiveStepId(stepNumber);
+    const updated: RoadmapPathFocus = {
+      ...pathFocus,
+      workingStepId: stepNumber,
+      regressionStepId: null,
+      attemptStepId: null,
+    };
+    persistPathFocus(updated, true);
+    if (toastMsg) showToast(toastMsg);
+  };
+
+  useEffect(() => {
+    const handleRemoteFocus = () => {
+      const latest = getStoredRoadmapPathFocus(3);
+      setPathFocus(latest);
+      setActiveStepId(latest.workingStepId);
+    };
+    window.addEventListener('planche_roadmap_focus_updated', handleRemoteFocus);
+    return () => {
+      window.removeEventListener('planche_roadmap_focus_updated', handleRemoteFocus);
+      if (focusSyncTimerRef.current) clearTimeout(focusSyncTimerRef.current);
+    };
+  }, []);
+
+  const sortedSteps = useMemo(
+    () => [...steps].sort((a, b) => a.step - b.step),
+    [steps]
+  );
+
+  const workingIdx = useMemo(() => {
+    const idx = sortedSteps.findIndex((s) => s.step === activeStepId);
+    return idx >= 0 ? idx : 0;
+  }, [sortedSteps, activeStepId]);
+
+  const workingStep = sortedSteps[workingIdx] || sortedSteps[0];
+  const autoRegressionStep = workingIdx > 0 ? sortedSteps[workingIdx - 1] : null;
+  const autoAttemptStep =
+    workingIdx < sortedSteps.length - 1 ? sortedSteps[workingIdx + 1] : null;
+
+  const regressionStep =
+    (typeof pathFocus.regressionStepId === 'number'
+      ? sortedSteps.find((s) => s.step === pathFocus.regressionStepId)
+      : null) || autoRegressionStep;
+
+  const attemptStep =
+    (typeof pathFocus.attemptStepId === 'number'
+      ? sortedSteps.find((s) => s.step === pathFocus.attemptStepId)
+      : null) || autoAttemptStep;
 
   const saveSteps = (updated: ProgressionStep[]) => {
     setSteps(updated);
@@ -457,6 +537,15 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
   const handleResetSteps = () => {
     saveSteps(PROGRESSION_ROADMAP);
     setActiveStepId(3);
+    persistPathFocus(
+      {
+        currentTitle: DEFAULT_ROADMAP_PATH_TITLE,
+        workingStepId: 3,
+        regressionStepId: null,
+        attemptStepId: null,
+      },
+      true
+    );
     sound.playSuccessChime();
     showToast('Roadmap progression steps restored to default curriculum!');
   };
@@ -942,24 +1031,264 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
             </div>
           </div>
 
-          {/* Active Target Banner */}
-          <div className="flex items-center justify-between p-3.5 bg-blue-50/60 border border-blue-200 rounded-xl text-xs">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse"></span>
-              <span className="text-slate-700">Current Working Target:</span>
-              <strong className="text-blue-900 font-bold">
-                Step {activeStepId}: {steps.find((s) => s.step === activeStepId)?.name || 'Custom Target'}
-              </strong>
+          {/* Current Title + 3-Tier Progression Overview: Regression / Working / Attempt */}
+          <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-4">
+            {/* Current Title Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3.5 border-b border-slate-200/80">
+              <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-600 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                    Current Title
+                  </span>
+                  <input
+                    type="text"
+                    value={pathFocus.currentTitle}
+                    onChange={(e) =>
+                      persistPathFocus({
+                        ...pathFocus,
+                        currentTitle: e.target.value,
+                      })
+                    }
+                    onBlur={() => persistPathFocus(pathFocus, true)}
+                    placeholder="Current Planche Progression..."
+                    aria-label="Current Progression Title"
+                    className="w-full text-base sm:text-lg font-bold text-slate-900 bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-400 focus:bg-white rounded-md px-1.5 py-0.5 -ml-1.5 focus:outline-none transition-colors"
+                  />
+                </div>
+              </div>
+
+              <span className="text-[11px] font-medium text-slate-500 shrink-0">
+                Hit 100% of Working criteria before attempting the next progression
+              </span>
             </div>
-            <span className="text-[11px] text-slate-500 hidden sm:inline">
-              Click "Set as Current Target" on any step below
-            </span>
+
+            {/* Underneath: Regression / Working Progression / Attempt Progression */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5 items-stretch">
+              {/* 1. REGRESSION */}
+              <div className="rounded-xl border border-slate-200 bg-white p-4 flex flex-col justify-between space-y-3">
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                      Regression
+                    </span>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                      Maintain
+                    </span>
+                  </div>
+
+                  <div>
+                    <select
+                      aria-label="Select Regression Progression"
+                      value={regressionStep ? regressionStep.step : ''}
+                      onChange={(e) => {
+                        const val = e.target.value ? Number(e.target.value) : null;
+                        persistPathFocus(
+                          {
+                            ...pathFocus,
+                            regressionStepId: val,
+                          },
+                          true
+                        );
+                      }}
+                      className="w-full text-xs font-bold text-slate-900 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer"
+                    >
+                      {!autoRegressionStep && (
+                        <option value="">Base Foundation (None below Step {workingStep?.step})</option>
+                      )}
+                      {sortedSteps.map((s) => (
+                        <option key={s.step} value={s.step}>
+                          Step {s.step}: {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {regressionStep ? (
+                    <div className="space-y-1">
+                      {regressionStep.subtitle && (
+                        <div className="text-xs font-medium text-slate-700">
+                          {regressionStep.subtitle}
+                        </div>
+                      )}
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        Easier progression under your working skill to maintain lockout strength, clean form, and connective tissue tolerance.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      You are on Step 1 (foundation). Focus on clean leans and scapular protraction before adding difficulty.
+                    </p>
+                  )}
+                </div>
+
+                {regressionStep && (
+                  <div className="pt-2.5 border-t border-slate-100 text-[11px] text-slate-500 flex items-center justify-between gap-2">
+                    <span>Submax / Maintenance fallback</span>
+                    <span className="font-semibold text-slate-700">Step {regressionStep.step}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* 2. WORKING PROGRESSION */}
+              <div className="rounded-xl border-2 border-blue-500 bg-blue-50/40 p-4 flex flex-col justify-between space-y-3 shadow-xs">
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-blue-900 flex items-center gap-1.5">
+                      <Target className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Working Progression</span>
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-600 text-white">
+                      Building · Main
+                    </span>
+                  </div>
+
+                  <div>
+                    <select
+                      aria-label="Select Working Progression"
+                      value={workingStep?.step || activeStepId}
+                      onChange={(e) => {
+                        const nextId = Number(e.target.value);
+                        const chosen = sortedSteps.find((s) => s.step === nextId);
+                        selectWorkingStep(
+                          nextId,
+                          chosen ? `Working progression set to Step ${chosen.step}: ${chosen.name}` : undefined
+                        );
+                        sound.playSuccessChime();
+                      }}
+                      className="w-full text-xs font-bold text-blue-950 bg-white border border-blue-300 rounded-lg px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-600 cursor-pointer"
+                    >
+                      {sortedSteps.map((s) => (
+                        <option key={s.step} value={s.step}>
+                          Step {s.step}: {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {workingStep && (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] text-blue-950/80 leading-relaxed">
+                        Main skill you are actively building right now. Hit 100% of these criteria before advancing:
+                      </p>
+                      {workingStep.criteria.length > 0 && (
+                        <ul className="space-y-1 pt-0.5">
+                          {workingStep.criteria.slice(0, 3).map((c, idx) => (
+                            <li
+                              key={idx}
+                              className="flex items-start gap-1.5 text-[11px] text-slate-800 font-medium"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
+                              <span>{c}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-2.5 border-t border-blue-200/80 flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-blue-800">
+                    Active Step {workingStep?.step}
+                  </span>
+                  {attemptStep && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        selectWorkingStep(
+                          attemptStep.step,
+                          `100% criteria hit! Graduated to Step ${attemptStep.step}: ${attemptStep.name}`
+                        );
+                        sound.playSuccessChime();
+                        confetti({
+                          particleCount: 70,
+                          spread: 60,
+                          origin: { y: 0.7 },
+                        });
+                      }}
+                      className="text-[11px] font-bold text-white bg-blue-600 hover:bg-blue-700 px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                    >
+                      <span>Hit 100% → Advance</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 3. ATTEMPT PROGRESSION */}
+              <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 flex flex-col justify-between space-y-3">
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-950">
+                      Attempt Progression
+                    </span>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">
+                      At 100% Criteria
+                    </span>
+                  </div>
+
+                  <div>
+                    <select
+                      aria-label="Select Attempt Progression"
+                      value={attemptStep ? attemptStep.step : ''}
+                      onChange={(e) => {
+                        const val = e.target.value ? Number(e.target.value) : null;
+                        persistPathFocus(
+                          {
+                            ...pathFocus,
+                            attemptStepId: val,
+                          },
+                          true
+                        );
+                      }}
+                      className="w-full text-xs font-bold text-slate-900 bg-white border border-amber-200 rounded-lg px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 cursor-pointer"
+                    >
+                      {!autoAttemptStep && (
+                        <option value="">Final Mastery Step Reached</option>
+                      )}
+                      {sortedSteps.map((s) => (
+                        <option key={s.step} value={s.step}>
+                          Step {s.step}: {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {attemptStep ? (
+                    <div className="space-y-1">
+                      {attemptStep.subtitle && (
+                        <div className="text-xs font-medium text-amber-950">
+                          {attemptStep.subtitle}
+                        </div>
+                      )}
+                      <p className="text-[11px] text-amber-950/80 leading-relaxed">
+                        Next progression to attempt once you 100% achieve every benchmark of your Working Progression cleanly.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-amber-950/80 leading-relaxed">
+                      You are working on the highest step in your progression ladder. Continue refining unbroken horizontal mastery.
+                    </p>
+                  )}
+                </div>
+
+                {attemptStep && (
+                  <div className="pt-2.5 border-t border-amber-200/70 text-[11px] text-amber-900 flex items-center justify-between gap-2">
+                    <span>Next unlock target</span>
+                    <span className="font-semibold">Step {attemptStep.step}</span>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Steps List */}
           <div className="space-y-5">
-            {steps.map((step) => {
+            {sortedSteps.map((step) => {
               const isCurrent = step.step === activeStepId;
+              const isRegression = !isCurrent && regressionStep?.step === step.step;
+              const isAttempt = !isCurrent && attemptStep?.step === step.step;
               const isPassed = step.step < activeStepId;
 
               return (
@@ -994,7 +1323,17 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
                           {isCurrent && (
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-600 text-white flex items-center gap-1 shadow-2xs">
                               <Sparkles className="w-3 h-3" />
-                              <span>Current Active Target</span>
+                              <span>Working Progression</span>
+                            </span>
+                          )}
+                          {isRegression && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-800 border border-slate-300">
+                              Regression (Maintain)
+                            </span>
+                          )}
+                          {isAttempt && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                              Attempt Progression
                             </span>
                           )}
                           {isPassed && (
@@ -1013,9 +1352,11 @@ export const ProgressionRoadmap: React.FC<ProgressionRoadmapProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            setActiveStepId(step.step);
+                            selectWorkingStep(
+                              step.step,
+                              `Working progression set to Step ${step.step}: ${step.name}`
+                            );
                             sound.playSuccessChime();
-                            showToast(`Active target set to Step ${step.step}: ${step.name}`);
                           }}
                           className="px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:text-blue-700 bg-white hover:bg-blue-50 rounded-lg border border-slate-200 hover:border-blue-300 transition-colors cursor-pointer"
                         >
