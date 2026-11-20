@@ -21,24 +21,34 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertTriangle,
+  Pencil,
 } from 'lucide-react';
 import {
   WeeklyProgressEntry,
+  NutritionHeaderStep,
+  DEFAULT_NUTRITION_STEPS,
   INITIAL_START_DATE,
   calculateDateForWeek,
   generateDefaultProgressEntries,
   generateEmptyProgressEntries,
   getStoredTransformationData,
   saveStoredTransformationData,
+  getStoredNutritionSteps,
+  saveStoredNutritionSteps,
 } from '../data/transformationData';
 import { CalorieCalculator } from './CalorieCalculator';
 
 export const TransformationView: React.FC = () => {
-  const { saveTransformationToCloud } = useSync();
+  const { saveTransformationToCloud, saveNutritionStepsToCloud } = useSync();
   const [data, setData] = useState<{
     startDate: string;
     entries: WeeklyProgressEntry[];
   }>(() => getStoredTransformationData());
+
+  const [headerSteps, setHeaderSteps] = useState<NutritionHeaderStep[]>(() =>
+    getStoredNutritionSteps()
+  );
+  const stepsSyncTimerRef = useRef<number | null>(null);
 
   const [activeSubTab, setActiveSubTab] = useState<'spreadsheet' | 'photos' | 'summary'>('spreadsheet');
   const [selectedPhotoWeek, setSelectedPhotoWeek] = useState<number>(0);
@@ -59,9 +69,15 @@ export const TransformationView: React.FC = () => {
     const handleRemoteUpdate = () => {
       setData(getStoredTransformationData());
     };
+    const handleStepsRemoteUpdate = () => {
+      setHeaderSteps(getStoredNutritionSteps());
+    };
     window.addEventListener('planche_transformation_updated', handleRemoteUpdate);
+    window.addEventListener('planche_nutrition_steps_updated', handleStepsRemoteUpdate);
     return () => {
       window.removeEventListener('planche_transformation_updated', handleRemoteUpdate);
+      window.removeEventListener('planche_nutrition_steps_updated', handleStepsRemoteUpdate);
+      if (stepsSyncTimerRef.current) clearTimeout(stepsSyncTimerRef.current);
     };
   }, []);
 
@@ -112,10 +128,46 @@ export const TransformationView: React.FC = () => {
     persistChanges(data.startDate, updatedEntries);
   };
 
-  // Apply calculated daily calories to selected transformation week
+  // Handle edits to the 3 header steps (custom title & notes)
+  const handleStepFieldChange = (
+    stepNumber: 1 | 2 | 3,
+    field: 'title' | 'notes',
+    value: string
+  ) => {
+    const updatedSteps = headerSteps.map((step) =>
+      step.stepNumber === stepNumber ? { ...step, [field]: value } : step
+    );
+    setHeaderSteps(updatedSteps);
+    saveStoredNutritionSteps(updatedSteps);
+
+    if (stepsSyncTimerRef.current) {
+      clearTimeout(stepsSyncTimerRef.current);
+    }
+    stepsSyncTimerRef.current = window.setTimeout(() => {
+      saveNutritionStepsToCloud(updatedSteps, data.startDate);
+    }, 600);
+  };
+
+  const handleStepBlur = () => {
+    if (stepsSyncTimerRef.current) {
+      clearTimeout(stepsSyncTimerRef.current);
+      stepsSyncTimerRef.current = null;
+    }
+    saveNutritionStepsToCloud(headerSteps, data.startDate);
+  };
+
+  const handleResetHeaderSteps = () => {
+    setHeaderSteps(DEFAULT_NUTRITION_STEPS);
+    saveStoredNutritionSteps(DEFAULT_NUTRITION_STEPS);
+    saveNutritionStepsToCloud(DEFAULT_NUTRITION_STEPS, data.startDate);
+    triggerSaveNotification('Header steps reset to defaults');
+  };
+
+  // Apply calculated daily or cycled High/Low calories to selected transformation week
   const handleApplyCalculatorCalories = (
     weekNumber: number,
-    dailyCalories: number,
+    trainingDayCalories: number,
+    restDayCalories: number,
     goalLabel: string
   ) => {
     const targetEntry = data.entries.find((e) => e.weekNumber === weekNumber);
@@ -123,8 +175,8 @@ export const TransformationView: React.FC = () => {
       if (entry.weekNumber === weekNumber) {
         return {
           ...entry,
-          trainingDayCalories: String(dailyCalories),
-          restDayCalories: String(dailyCalories),
+          trainingDayCalories: String(trainingDayCalories),
+          restDayCalories: String(restDayCalories),
         };
       }
       return entry;
@@ -132,10 +184,14 @@ export const TransformationView: React.FC = () => {
 
     const nextData = { ...data, entries: updatedEntries };
     setData(nextData);
+    const isCycled = trainingDayCalories !== restDayCalories;
+    const summaryText = isCycled
+      ? `${trainingDayCalories.toLocaleString('en-US')} High / ${restDayCalories.toLocaleString('en-US')} Low kcal`
+      : `${trainingDayCalories.toLocaleString('en-US')} kcal/day`;
     persistChanges(
       data.startDate,
       updatedEntries,
-      `Applied ${goalLabel} (${dailyCalories.toLocaleString('en-US')} kcal/day) to ${
+      `Applied ${goalLabel} (${summaryText}) to ${
         targetEntry?.weekLabel || `Week ${weekNumber}`
       }`
     );
@@ -504,8 +560,64 @@ export const TransformationView: React.FC = () => {
           </div>
         </div>
 
+        {/* 3 Customizable Header Steps (Directly under Header Title & Paragraph) */}
+        <div className="mt-5 pt-5 border-t border-slate-100 space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+              <Pencil className="w-3 h-3 text-slate-400" />
+              <span>3-Step Nutrition Workflow (Click title or notes to customize)</span>
+            </span>
+            {JSON.stringify(headerSteps) !== JSON.stringify(DEFAULT_NUTRITION_STEPS) && (
+              <button
+                type="button"
+                onClick={handleResetHeaderSteps}
+                className="text-[11px] font-medium text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+              >
+                Reset Steps
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {headerSteps.map((step) => (
+              <div
+                key={step.stepNumber}
+                className="bg-slate-50/80 hover:bg-slate-50 rounded-xl p-3.5 border border-slate-200/80 transition-colors flex flex-col gap-1.5 focus-within:border-blue-400 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-500/10"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-md bg-blue-600 text-white text-[10px] font-bold uppercase tracking-wider shrink-0">
+                    Step {step.stepNumber}
+                  </span>
+                  <input
+                    type="text"
+                    value={step.title}
+                    onChange={(e) =>
+                      handleStepFieldChange(step.stepNumber, 'title', e.target.value)
+                    }
+                    onBlur={handleStepBlur}
+                    placeholder={`Step ${step.stepNumber} title...`}
+                    aria-label={`Step ${step.stepNumber} custom title`}
+                    className="w-full text-xs sm:text-sm font-bold text-slate-900 bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-300 focus:bg-white rounded px-1.5 py-0.5 focus:outline-none transition-colors"
+                  />
+                </div>
+                <textarea
+                  rows={2}
+                  value={step.notes}
+                  onChange={(e) =>
+                    handleStepFieldChange(step.stepNumber, 'notes', e.target.value)
+                  }
+                  onBlur={handleStepBlur}
+                  placeholder={`Add custom notes for Step ${step.stepNumber}...`}
+                  aria-label={`Step ${step.stepNumber} custom notes`}
+                  className="w-full text-xs text-slate-600 bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-300 focus:bg-white rounded px-1.5 py-1 focus:outline-none transition-colors resize-none leading-relaxed"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Top KPI Metrics Strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-slate-100">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-5 border-t border-slate-100">
           <div className="bg-slate-50 rounded-lg p-3 border border-slate-200/80">
             <span className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider block">
               Current Weight

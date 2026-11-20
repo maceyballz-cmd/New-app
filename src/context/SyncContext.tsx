@@ -19,7 +19,13 @@ import {
   handleFirestoreError,
   OperationType,
 } from '../lib/firebase';
-import { WeeklyProgressEntry, getStoredTransformationData, saveStoredTransformationData } from '../data/transformationData';
+import {
+  WeeklyProgressEntry,
+  NutritionHeaderStep,
+  getStoredTransformationData,
+  saveStoredTransformationData,
+  saveStoredNutritionSteps,
+} from '../data/transformationData';
 import { CalendarDayLog } from '../components/WorkoutCalendarView';
 import { WorkoutType, WorkoutProgram, getWorkoutProgram, saveWorkoutProgram } from '../data/programData';
 
@@ -71,6 +77,7 @@ interface SyncContextType {
   saveCalendarLogToCloud: (log: CalendarDayLog) => Promise<void>;
   deleteCalendarLogFromCloud: (logId: string) => Promise<void>;
   saveTransformationToCloud: (startDate: string, entries: WeeklyProgressEntry[]) => Promise<void>;
+  saveNutritionStepsToCloud: (steps: NutritionHeaderStep[], startDate?: string) => Promise<void>;
   saveCustomWorkoutToCloud: (workout: WorkoutProgram) => Promise<void>;
 }
 
@@ -225,7 +232,19 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const metaDoc = await getDoc(doc(db, 'users', uid, 'transformationMeta', 'settings'));
         if (metaDoc.exists()) {
-          metaStartDate = metaDoc.data()?.startDate || '';
+          const metaData = metaDoc.data();
+          metaStartDate = metaData?.startDate || '';
+          if (metaData?.nutritionStepsJson) {
+            try {
+              const parsedSteps = JSON.parse(metaData.nutritionStepsJson);
+              if (Array.isArray(parsedSteps) && parsedSteps.length === 3) {
+                saveStoredNutritionSteps(parsedSteps);
+                window.dispatchEvent(new Event('planche_nutrition_steps_updated'));
+              }
+            } catch {
+              // ignore
+            }
+          }
         }
       } catch {
         // ignore
@@ -796,11 +815,37 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     );
 
+    // 5. Listen to Transformation Meta (start date & custom nutrition steps)
+    const pathMeta = `users/${uid}/transformationMeta/settings`;
+    const unsubMeta = onSnapshot(
+      doc(db, 'users', uid, 'transformationMeta', 'settings'),
+      (docSnap) => {
+        try {
+          if (docSnap.exists()) {
+            const metaData = docSnap.data();
+            if (metaData?.nutritionStepsJson) {
+              const parsedSteps = JSON.parse(metaData.nutritionStepsJson);
+              if (Array.isArray(parsedSteps) && parsedSteps.length === 3) {
+                saveStoredNutritionSteps(parsedSteps);
+                window.dispatchEvent(new Event('planche_nutrition_steps_updated'));
+              }
+            }
+          }
+        } catch {
+          // ignore
+        }
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.GET, pathMeta);
+      }
+    );
+
     return () => {
       unsubLogs();
       unsubCalendar();
       unsubWeeks();
       unsubWorkouts();
+      unsubMeta();
     };
   }, [user, uploadLocalDataIfEmpty]);
 
@@ -968,12 +1013,16 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const batch = writeBatch(db);
 
       const metaRef = doc(db, 'users', user.uid, 'transformationMeta', 'settings');
-      batch.set(metaRef, {
-        userId: user.uid,
-        startDate: startDate,
-        unitMode: 'lbs_cm',
-        updatedAt: new Date().toISOString(),
-      });
+      batch.set(
+        metaRef,
+        {
+          userId: user.uid,
+          startDate: startDate,
+          unitMode: 'lbs_cm',
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
 
       entries.forEach((week) => {
         const weekId = `week_${week.weekNumber}`;
@@ -1018,6 +1067,34 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       console.error('Error saving transformation to cloud:', err);
       handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/transformationWeeks`);
+    }
+  };
+
+  const saveNutritionStepsToCloud = async (steps: NutritionHeaderStep[], startDate?: string) => {
+    if (!user) return;
+    try {
+      setSyncStatus('syncing');
+      const effectiveStartDate = (startDate || getStoredTransformationData().startDate || '2026-10-17').slice(0, 32);
+      const sanitized = steps.slice(0, 3).map((s, idx) => ({
+        stepNumber: (idx + 1) as 1 | 2 | 3,
+        title: String(s.title || '').slice(0, 120),
+        notes: String(s.notes || '').slice(0, 1000),
+      }));
+      const metaRef = doc(db, 'users', user.uid, 'transformationMeta', 'settings');
+      await setDoc(
+        metaRef,
+        {
+          userId: user.uid,
+          startDate: effectiveStartDate,
+          nutritionStepsJson: JSON.stringify(sanitized).slice(0, 8000),
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      setSyncStatus('synced');
+      setLastSyncedAt(new Date());
+    } catch (err) {
+      console.warn('Error saving nutrition steps to cloud:', err);
     }
   };
 
@@ -1130,6 +1207,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
         saveCalendarLogToCloud,
         deleteCalendarLogFromCloud,
         saveTransformationToCloud,
+        saveNutritionStepsToCloud,
         saveCustomWorkoutToCloud,
       }}
     >

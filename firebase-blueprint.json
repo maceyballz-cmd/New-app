@@ -111,12 +111,13 @@
     },
     "TransformationMeta": {
       "title": "TransformationMeta",
-      "description": "Transformation schedule start date and units",
+      "description": "Transformation schedule start date, units, and custom nutrition steps",
       "type": "object",
       "properties": {
         "userId": { "type": "string", "maxLength": 128 },
         "startDate": { "type": "string", "maxLength": 32 },
         "unitMode": { "type": "string", "maxLength": 32 },
+        "nutritionStepsJson": { "type": "string", "maxLength": 8000 },
         "updatedAt": { "type": "string", "maxLength": 64 }
       },
       "required": ["userId", "startDate"]

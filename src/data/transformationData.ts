@@ -302,3 +302,67 @@ export function saveStoredTransformationData(
   localStorage.setItem(START_DATE_KEY, startDate);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
 }
+
+export interface NutritionHeaderStep {
+  stepNumber: 1 | 2 | 3;
+  title: string;
+  notes: string;
+}
+
+export const DEFAULT_NUTRITION_STEPS: NutritionHeaderStep[] = [
+  {
+    stepNumber: 1,
+    title: 'Set Weekly Calorie Targets',
+    notes:
+      'Enter your weight and activity level below, then pick Even Daily or High/Low Calorie Cycling.',
+  },
+  {
+    stepNumber: 2,
+    title: 'Cycle Training & Rest Days',
+    notes:
+      'Eat higher calories on training days to fuel planche work and lower calories on rest days while hitting your weekly total.',
+  },
+  {
+    stepNumber: 3,
+    title: 'Audit Weekly Check-Ins',
+    notes:
+      'Log morning weight, navel waist, adherence, biofeedback, and 4-angle photos weekly to refine targets.',
+  },
+];
+
+const NUTRITION_STEPS_KEY = 'planche_nutrition_header_steps';
+
+export function getStoredNutritionSteps(): NutritionHeaderStep[] {
+  if (typeof window === 'undefined') return DEFAULT_NUTRITION_STEPS;
+  try {
+    const raw = localStorage.getItem(NUTRITION_STEPS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length === 3) {
+        return ([1, 2, 3] as const).map((num, idx) => ({
+          stepNumber: num,
+          title:
+            typeof parsed[idx]?.title === 'string'
+              ? parsed[idx].title
+              : DEFAULT_NUTRITION_STEPS[idx].title,
+          notes:
+            typeof parsed[idx]?.notes === 'string'
+              ? parsed[idx].notes
+              : DEFAULT_NUTRITION_STEPS[idx].notes,
+        }));
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_NUTRITION_STEPS;
+}
+
+export function saveStoredNutritionSteps(steps: NutritionHeaderStep[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(NUTRITION_STEPS_KEY, JSON.stringify(steps));
+  } catch {
+    // ignore
+  }
+}
