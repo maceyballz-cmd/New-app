@@ -36,17 +36,107 @@ import {
   saveStoredRoadmapPathFocus,
 } from '../data/programData';
 
-export interface LogEntry {
-  id?: string;
-  date: string;
-  completedSets: number;
-  totalSets: number;
-  progressPercent: number;
-  targetRpe: string;
-  notes?: string;
-  workoutName?: string;
-  workoutIntensity?: string;
-}
+import {
+  LogEntry,
+  SessionPerformance,
+  PhysicalFatigue,
+  NeuromuscularControl,
+  SkillPerformance,
+} from '../data/workoutTrackingTypes';
+
+export type { LogEntry };
+
+const parseSymptomsField = (data: Record<string, any>): string[] | undefined => {
+  if (Array.isArray(data.symptoms)) {
+    return data.symptoms.filter((s): s is string => typeof s === 'string' && s.length > 0);
+  }
+  if (typeof data.symptomsJson === 'string' && data.symptomsJson.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(data.symptomsJson);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((s): s is string => typeof s === 'string' && s.length > 0);
+      }
+    } catch {
+      // ignore invalid JSON
+    }
+  }
+  return undefined;
+};
+
+const mapFirestoreWorkoutLog = (docId: string, data: Record<string, any>): LogEntry => {
+  const symptoms = parseSymptomsField(data);
+  const entry: LogEntry = {
+    id: data.id || docId,
+    date: data.date,
+    completedSets: Number(data.completedSets || 0),
+    totalSets: Number(data.totalSets || 0),
+    progressPercent: Number(data.progressPercent || 0),
+    targetRpe: data.targetRpe || 'RPE 8',
+    notes: data.notes || '',
+    workoutName: data.workoutName || 'Frog Planche Focus',
+    workoutIntensity: data.workoutIntensity || '50–60% Submaximal',
+  };
+  if (typeof data.durationMinutes === 'number' && data.durationMinutes > 0) {
+    entry.durationMinutes = Number(data.durationMinutes);
+  }
+  if (typeof data.exercises === 'string' && data.exercises.trim().length > 0) {
+    entry.exercises = data.exercises;
+  }
+  if (data.sessionPerformance) {
+    entry.sessionPerformance = data.sessionPerformance as SessionPerformance;
+  }
+  if (data.physicalFatigue) {
+    entry.physicalFatigue = data.physicalFatigue as PhysicalFatigue;
+  }
+  if (data.neuromuscularControl) {
+    entry.neuromuscularControl = data.neuromuscularControl as NeuromuscularControl;
+  }
+  if (data.skillPerformance) {
+    entry.skillPerformance = data.skillPerformance as SkillPerformance;
+  }
+  if (symptoms && symptoms.length > 0) {
+    entry.symptoms = symptoms;
+  }
+  return entry;
+};
+
+const buildFirestoreWorkoutLogPayload = (log: LogEntry, cleanId: string, uid: string) => {
+  const payload: Record<string, any> = {
+    id: cleanId,
+    userId: uid,
+    date: log.date || new Date().toISOString(),
+    completedSets: Number(log.completedSets || 0),
+    totalSets: Number(log.totalSets || 0),
+    progressPercent: Number(log.progressPercent || 0),
+    targetRpe: String(log.targetRpe || 'RPE 8').slice(0, 64),
+    notes: String(log.notes || '').slice(0, 2048),
+    workoutName: String(log.workoutName || 'Frog Planche Focus').slice(0, 256),
+    workoutIntensity: String(log.workoutIntensity || '50–60% Submaximal').slice(0, 128),
+    createdAt: new Date().toISOString(),
+  };
+  if (typeof log.durationMinutes === 'number' && log.durationMinutes > 0) {
+    payload.durationMinutes = Number(log.durationMinutes);
+  }
+  if (typeof log.exercises === 'string' && log.exercises.trim().length > 0) {
+    payload.exercises = String(log.exercises).slice(0, 2048);
+  }
+  if (log.sessionPerformance) {
+    payload.sessionPerformance = String(log.sessionPerformance).slice(0, 32);
+  }
+  if (log.physicalFatigue) {
+    payload.physicalFatigue = String(log.physicalFatigue).slice(0, 32);
+  }
+  if (log.neuromuscularControl) {
+    payload.neuromuscularControl = String(log.neuromuscularControl).slice(0, 32);
+  }
+  if (log.skillPerformance) {
+    payload.skillPerformance = String(log.skillPerformance).slice(0, 32);
+  }
+  if (Array.isArray(log.symptoms) && log.symptoms.length > 0) {
+    payload.symptomsJson = JSON.stringify(log.symptoms).slice(0, 1024);
+  }
+  return payload;
+};
 
 export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error' | 'offline';
 
@@ -127,18 +217,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const workoutSnap = await getDocs(collection(db, 'users', uid, 'workoutLogs'));
       const remoteLogs: LogEntry[] = [];
       workoutSnap.forEach((docSnap) => {
-        const data = docSnap.data();
-        remoteLogs.push({
-          id: data.id || docSnap.id,
-          date: data.date,
-          completedSets: Number(data.completedSets || 0),
-          totalSets: Number(data.totalSets || 0),
-          progressPercent: Number(data.progressPercent || 0),
-          targetRpe: data.targetRpe || 'RPE 8',
-          notes: data.notes || '',
-          workoutName: data.workoutName || 'Frog Planche Focus',
-          workoutIntensity: data.workoutIntensity || '50–60% Submaximal',
-        });
+        remoteLogs.push(mapFirestoreWorkoutLog(docSnap.id, docSnap.data()));
       });
       remoteLogs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       if (remoteLogs.length > 0) {
@@ -406,19 +485,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
             localHistory.forEach((item, idx) => {
               const logId = item.id ? String(item.id).replace(/[^a-zA-Z0-9_-]/g, '_') : `log_${idx}_${Date.now()}`;
               const docRef = doc(db, 'users', uid, 'workoutLogs', logId);
-              batch.set(docRef, {
-                id: logId,
-                userId: uid,
-                date: item.date || new Date().toISOString(),
-                completedSets: Number(item.completedSets || 0),
-                totalSets: Number(item.totalSets || 0),
-                progressPercent: Number(item.progressPercent || 0),
-                targetRpe: String(item.targetRpe || 'RPE 8'),
-                notes: String(item.notes || '').slice(0, 2048),
-                workoutName: String(item.workoutName || 'Frog Planche Focus').slice(0, 256),
-                workoutIntensity: String(item.workoutIntensity || '50–60% Submaximal').slice(0, 128),
-                createdAt: new Date().toISOString(),
-              });
+              batch.set(docRef, buildFirestoreWorkoutLogPayload(item, logId, uid));
             });
             await batch.commit();
           }
@@ -577,18 +644,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           const remoteLogs: LogEntry[] = [];
           snapshot.forEach((docSnap) => {
-            const data = docSnap.data();
-            remoteLogs.push({
-              id: data.id || docSnap.id,
-              date: data.date,
-              completedSets: Number(data.completedSets || 0),
-              totalSets: Number(data.totalSets || 0),
-              progressPercent: Number(data.progressPercent || 0),
-              targetRpe: data.targetRpe || 'RPE 8',
-              notes: data.notes || '',
-              workoutName: data.workoutName || 'Frog Planche Focus',
-              workoutIntensity: data.workoutIntensity || '50–60% Submaximal',
-            });
+            remoteLogs.push(mapFirestoreWorkoutLog(docSnap.id, docSnap.data()));
           });
 
           remoteLogs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -885,19 +941,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const targetId = docId || log.id || `log_${Date.now()}`;
       const cleanId = String(targetId).replace(/[^a-zA-Z0-9_-]/g, '_');
       const docRef = doc(db, 'users', user.uid, 'workoutLogs', cleanId);
-      await setDoc(docRef, {
-        id: cleanId,
-        userId: user.uid,
-        date: log.date,
-        completedSets: Number(log.completedSets),
-        totalSets: Number(log.totalSets),
-        progressPercent: Number(log.progressPercent),
-        targetRpe: String(log.targetRpe || 'RPE 8'),
-        notes: String(log.notes || '').slice(0, 2048),
-        workoutName: String(log.workoutName || 'Frog Planche Focus').slice(0, 256),
-        workoutIntensity: String(log.workoutIntensity || '50–60% Submaximal').slice(0, 128),
-        createdAt: new Date().toISOString(),
-      });
+      await setDoc(docRef, buildFirestoreWorkoutLogPayload(log, cleanId, user.uid));
       setSyncStatus('synced');
       setLastSyncedAt(new Date());
     } catch (err) {

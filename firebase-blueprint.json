@@ -28,6 +28,13 @@
         "notes": { "type": "string", "maxLength": 2048 },
         "workoutName": { "type": "string", "maxLength": 256 },
         "workoutIntensity": { "type": "string", "maxLength": 128 },
+        "durationMinutes": { "type": "number" },
+        "exercises": { "type": "string", "maxLength": 2048 },
+        "sessionPerformance": { "type": "string", "maxLength": 32 },
+        "physicalFatigue": { "type": "string", "maxLength": 32 },
+        "neuromuscularControl": { "type": "string", "maxLength": 32 },
+        "skillPerformance": { "type": "string", "maxLength": 32 },
+        "symptomsJson": { "type": "string", "maxLength": 1024 },
         "createdAt": { "type": "string", "maxLength": 64 }
       },
       "required": ["id", "userId", "date", "completedSets", "totalSets", "progressPercent"]

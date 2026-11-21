@@ -27,10 +27,29 @@ import {
   Calculator,
 } from 'lucide-react';
 import { WorkoutProgram, WorkoutType, getWorkoutProgram } from '../data/programData';
+import {
+  SessionPerformance,
+  PhysicalFatigue,
+  NeuromuscularControl,
+  SkillPerformance,
+  SESSION_PERFORMANCE_OPTIONS,
+  PHYSICAL_FATIGUE_OPTIONS,
+  NEUROMUSCULAR_CONTROL_OPTIONS,
+  SKILL_PERFORMANCE_OPTIONS,
+  SYMPTOM_TAGS,
+  NO_UNUSUAL_SYMPTOMS_TAG,
+  toggleSymptomSelection,
+  getToneBadgeClasses,
+  getPerformanceTone,
+  getFatigueTone,
+  getControlTone,
+  getSkillTone,
+} from '../data/workoutTrackingTypes';
 
 export type DayLogType = 'workout' | 'rest' | 'work' | 'symptom' | 'multi';
 
 export interface WorkoutLogData {
+  historyId?: string;
   workoutName: string;
   workoutIntensity: string;
   durationMinutes: number;
@@ -39,6 +58,11 @@ export interface WorkoutLogData {
   exercises?: string;
   targetRpe: string;
   notes?: string;
+  sessionPerformance?: SessionPerformance;
+  physicalFatigue?: PhysicalFatigue;
+  neuromuscularControl?: NeuromuscularControl;
+  skillPerformance?: SkillPerformance;
+  symptoms?: string[];
 }
 
 export interface RestLogData {
@@ -182,6 +206,12 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
   const [wExercises, setWExercises] = useState<string>(() => getExercisesStringFromWorkout(defaultProg));
   const [wRpe, setWRpe] = useState<string>(() => defaultProg.meta.targetRPE || 'RPE 6-7 (2-3 RIR)');
   const [wNotes, setWNotes] = useState<string>('');
+  const [wSessionPerformance, setWSessionPerformance] = useState<SessionPerformance | ''>('');
+  const [wPhysicalFatigue, setWPhysicalFatigue] = useState<PhysicalFatigue | ''>('');
+  const [wNeuromuscularControl, setWNeuromuscularControl] = useState<NeuromuscularControl | ''>('');
+  const [wSkillPerformance, setWSkillPerformance] = useState<SkillPerformance | ''>('');
+  const [wSymptoms, setWSymptoms] = useState<string[]>([]);
+  const [showExerciseChips, setShowExerciseChips] = useState<boolean>(false);
 
   // Keep defaults updated with active program page workout whenever it changes and modal is closed
   useEffect(() => {
@@ -247,22 +277,28 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
         const historyList: any[] = JSON.parse(rawHistory);
         historyList.forEach((entry, idx) => {
           if (!entry.date) return;
-          const entryDate = new Date(entry.date);
-          const key = formatDateToKey(entryDate);
-          // If no log exists for this date, or if it was an auto-session, populate workout
+          const key = entry.date.length === 10 ? entry.date : formatDateToKey(new Date(entry.date));
+          // If no log exists for this date, populate workout
           if (!calMap[key]) {
             calMap[key] = {
               id: `live-${idx}-${entry.date}`,
               date: key,
               type: 'workout',
               workoutDetails: {
+                historyId: entry.id,
                 workoutName: entry.workoutName || 'Submaximal Live Session',
                 workoutIntensity: entry.workoutIntensity || '50–60% Submax',
                 durationMinutes: entry.durationMinutes || 45,
                 completedSets: entry.completedSets || 18,
                 totalSets: entry.totalSets || 18,
+                exercises: entry.exercises || '',
                 targetRpe: entry.targetRpe || 'RPE 6-7',
                 notes: entry.notes || '',
+                sessionPerformance: entry.sessionPerformance,
+                physicalFatigue: entry.physicalFatigue,
+                neuromuscularControl: entry.neuromuscularControl,
+                skillPerformance: entry.skillPerformance,
+                symptoms: Array.isArray(entry.symptoms) ? entry.symptoms : undefined,
               },
               createdAt: entry.date,
             };
@@ -405,6 +441,11 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
       setWExercises(editW.exercises || '');
       setWRpe(editW.targetRpe);
       setWNotes(editW.notes || '');
+      setWSessionPerformance(editW.sessionPerformance || '');
+      setWPhysicalFatigue(editW.physicalFatigue || '');
+      setWNeuromuscularControl(editW.neuromuscularControl || '');
+      setWSkillPerformance(editW.skillPerformance || '');
+      setWSymptoms(Array.isArray(editW.symptoms) ? editW.symptoms : []);
     } else {
       // Adding a new workout to this day (even if other workouts already exist!)
       const activeProg = currentWorkout || availablePrograms[0] || getWorkoutProgram('submax');
@@ -419,7 +460,13 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
       setWExercises(getExercisesStringFromWorkout(activeProg));
       setWRpe(activeProg.meta?.targetRPE || 'RPE 6-7 (2-3 RIR)');
       setWNotes('');
+      setWSessionPerformance('');
+      setWPhysicalFatigue('');
+      setWNeuromuscularControl('');
+      setWSkillPerformance('');
+      setWSymptoms([]);
     }
+    setShowExerciseChips(false);
     setIsWorkoutModalOpen(true);
   };
 
@@ -653,16 +700,36 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
 
     const existingLog = calendarLogs[wDate];
     const currentWorkouts = [...getDayWorkouts(existingLog)];
+    const sanitizedDate = wDate.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    let workoutHistoryId: string;
+    if (editingWorkoutIndex !== null && editingWorkoutIndex >= 0 && editingWorkoutIndex < currentWorkouts.length) {
+      workoutHistoryId =
+        currentWorkouts[editingWorkoutIndex].historyId ||
+        `log_cal_${sanitizedDate}_${editingWorkoutIndex}`;
+    } else {
+      workoutHistoryId = `log_cal_${sanitizedDate}_${Date.now()}`;
+    }
+
+    const parsedDuration = Math.max(1, Number(wDuration) || 45);
+    const parsedCompleted = Math.max(0, Number(wCompletedSets) || 0);
+    const parsedTotal = Math.max(1, Number(wTotalSets) || 1);
 
     const newWorkout: WorkoutLogData = {
+      historyId: workoutHistoryId,
       workoutName: wName,
       workoutIntensity: wIntensity,
-      durationMinutes: Number(wDuration) || 45,
-      completedSets: Number(wCompletedSets) || 18,
-      totalSets: Number(wTotalSets) || 18,
+      durationMinutes: parsedDuration,
+      completedSets: parsedCompleted,
+      totalSets: parsedTotal,
       exercises: wExercises,
       targetRpe: wRpe,
       notes: wNotes,
+      ...(wSessionPerformance ? { sessionPerformance: wSessionPerformance } : {}),
+      ...(wPhysicalFatigue ? { physicalFatigue: wPhysicalFatigue } : {}),
+      ...(wNeuromuscularControl ? { neuromuscularControl: wNeuromuscularControl } : {}),
+      ...(wSkillPerformance ? { skillPerformance: wSkillPerformance } : {}),
+      ...(wSymptoms.length > 0 ? { symptoms: wSymptoms } : {}),
     };
 
     if (editingWorkoutIndex !== null && editingWorkoutIndex >= 0 && editingWorkoutIndex < currentWorkouts.length) {
@@ -700,34 +767,53 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
     saveCalendarLogs(updated);
     saveCalendarLogToCloud(newLog);
 
-    // Sync with workout history so the history list right above reflects this workout and saves to cloud
+    // Sync with workout history so the history list right above reflects this workout and saves to cloud without duplicates
     try {
-      const workoutHistoryId = `log_cal_${wDate.replace(/[^a-zA-Z0-9_-]/g, '_')}_${editingWorkoutIndex !== null ? editingWorkoutIndex : currentWorkouts.length - 1}`;
       const rawHistory = localStorage.getItem(STORAGE_WORKOUT_HISTORY_KEY);
-      let historyList: any[] = rawHistory ? JSON.parse(rawHistory) : [];
+      const historyList: any[] = rawHistory ? JSON.parse(rawHistory) : [];
       const historyEntry = {
         id: workoutHistoryId,
         date: new Date(`${wDate}T12:00:00`).toISOString(),
-        completedSets: Number(wCompletedSets) || 18,
-        totalSets: Number(wTotalSets) || 18,
-        progressPercent: Math.round(((Number(wCompletedSets) || 18) / (Number(wTotalSets) || 18)) * 100),
+        completedSets: parsedCompleted,
+        totalSets: parsedTotal,
+        progressPercent: Math.round((parsedCompleted / parsedTotal) * 100),
+        durationMinutes: parsedDuration,
         targetRpe: wRpe,
         notes: wNotes,
         workoutName: wName,
         workoutIntensity: wIntensity,
+        exercises: wExercises,
+        ...(wSessionPerformance ? { sessionPerformance: wSessionPerformance } : {}),
+        ...(wPhysicalFatigue ? { physicalFatigue: wPhysicalFatigue } : {}),
+        ...(wNeuromuscularControl ? { neuromuscularControl: wNeuromuscularControl } : {}),
+        ...(wSkillPerformance ? { skillPerformance: wSkillPerformance } : {}),
+        ...(wSymptoms.length > 0 ? { symptoms: wSymptoms } : {}),
       };
 
-      // If editing an existing workout, update that index/entry in history, else prepend
+      const legacyId = `log_cal_${sanitizedDate}_${editingWorkoutIndex ?? 0}`;
       const existingIdx = historyList.findIndex(
-        (h) => h.id === workoutHistoryId || (h.date && h.date.startsWith(wDate) && editingWorkoutIndex === 0)
+        (h) =>
+          h.id === workoutHistoryId ||
+          (editingWorkoutIndex !== null && h.id === legacyId)
       );
+
+      let nextHistory: any[];
       if (existingIdx !== -1) {
-        historyList[existingIdx] = historyEntry;
+        nextHistory = historyList.map((item, idx) => (idx === existingIdx ? historyEntry : item));
       } else {
-        historyList.unshift(historyEntry);
+        nextHistory = [historyEntry, ...historyList];
       }
 
-      localStorage.setItem(STORAGE_WORKOUT_HISTORY_KEY, JSON.stringify(historyList));
+      // Deduplicate by id to guarantee no duplicate records
+      const seenIds = new Set<string>();
+      nextHistory = nextHistory.filter((item) => {
+        if (!item?.id) return true;
+        if (seenIds.has(item.id)) return false;
+        seenIds.add(item.id);
+        return true;
+      });
+
+      localStorage.setItem(STORAGE_WORKOUT_HISTORY_KEY, JSON.stringify(nextHistory));
       window.dispatchEvent(new Event('planche_history_updated'));
 
       // Automatically sync this workout log to the user's cloud account
@@ -892,16 +978,19 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
     const existing = calendarLogs[targetDate];
     if (!existing) return;
     const current = [...getDayWorkouts(existing)];
+    const removedItem = current[index];
     current.splice(index, 1);
 
-    const targetLogId = `log_cal_${targetDate.replace(/[^a-zA-Z0-9_-]/g, '_')}_${index}`;
+    const targetLogId =
+      removedItem?.historyId ||
+      `log_cal_${targetDate.replace(/[^a-zA-Z0-9_-]/g, '_')}_${index}`;
     // Also remove from local workout history and delete from cloud
     try {
       const rawHistory = localStorage.getItem(STORAGE_WORKOUT_HISTORY_KEY);
       if (rawHistory) {
         const historyList: any[] = JSON.parse(rawHistory);
         const filtered = historyList.filter(
-          (h) => h.id !== targetLogId && !(h.date && h.date.startsWith(targetDate) && index === 0 && current.length === 0)
+          (h) => h.id !== targetLogId && !(h.date && h.date.startsWith(targetDate) && index === 0 && current.length === 0 && !h.id?.startsWith('live_'))
         );
         localStorage.setItem(STORAGE_WORKOUT_HISTORY_KEY, JSON.stringify(filtered));
         window.dispatchEvent(new Event('planche_history_updated'));
@@ -1667,6 +1756,66 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                             </div>
                           </div>
 
+                          {(workout.sessionPerformance ||
+                            workout.physicalFatigue ||
+                            workout.neuromuscularControl ||
+                            workout.skillPerformance) && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {workout.sessionPerformance && (() => {
+                                const tone = getPerformanceTone(workout.sessionPerformance);
+                                return (
+                                  <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-md border ${tone ? getToneBadgeClasses(tone) : 'bg-slate-50 text-slate-700 border-slate-200'}`}>
+                                    Performance: {workout.sessionPerformance}
+                                  </span>
+                                );
+                              })()}
+                              {workout.physicalFatigue && (() => {
+                                const tone = getFatigueTone(workout.physicalFatigue);
+                                return (
+                                  <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-md border ${tone ? getToneBadgeClasses(tone) : 'bg-slate-50 text-slate-700 border-slate-200'}`}>
+                                    Fatigue: {workout.physicalFatigue}
+                                  </span>
+                                );
+                              })()}
+                              {workout.neuromuscularControl && (() => {
+                                const tone = getControlTone(workout.neuromuscularControl);
+                                return (
+                                  <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-md border ${tone ? getToneBadgeClasses(tone) : 'bg-slate-50 text-slate-700 border-slate-200'}`}>
+                                    Control: {workout.neuromuscularControl}
+                                  </span>
+                                );
+                              })()}
+                              {workout.skillPerformance && (() => {
+                                const tone = getSkillTone(workout.skillPerformance);
+                                return (
+                                  <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-md border ${tone ? getToneBadgeClasses(tone) : 'bg-slate-50 text-slate-700 border-slate-200'}`}>
+                                    Skills: {workout.skillPerformance}
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                          )}
+
+                          {workout.symptoms && workout.symptoms.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mr-0.5">
+                                Symptoms:
+                              </span>
+                              {workout.symptoms.map((sym) => (
+                                <span
+                                  key={sym}
+                                  className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${
+                                    sym === NO_UNUSUAL_SYMPTOMS_TAG
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : 'bg-amber-50 text-amber-800 border-amber-200'
+                                  }`}
+                                >
+                                  {sym}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
                           {workout.exercises && (
                             <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-1">
                               <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
@@ -1682,7 +1831,7 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
                             <div className="bg-blue-50/60 p-3 rounded-lg border border-blue-100 space-y-1">
                               <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-blue-900">
                                 <FileText className="w-3 h-3 text-blue-600" />
-                                <span>Athlete Biofeedback & Session Notes</span>
+                                <span>Athlete Feedback & Notes</span>
                               </div>
                               <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed italic">
                                 "{workout.notes}"
@@ -2063,223 +2212,400 @@ export const WorkoutCalendarView: React.FC<WorkoutCalendarViewProps> = ({ curren
 
       {/* MODAL 1: Log Workout Modal */}
       {isWorkoutModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 border border-slate-200 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-5 sm:p-6 border border-slate-200 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center">
                   <Dumbbell className="w-4 h-4 text-blue-600" />
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900">
-                    {editingWorkoutIndex !== null ? `Edit Workout Session #${editingWorkoutIndex + 1}` : 'Log Workout Session'}
+                    {editingWorkoutIndex !== null ? `Edit Workout Session #${editingWorkoutIndex + 1}` : 'Log Workout'}
                   </h3>
-                  <p className="text-xs text-slate-500">Record your calisthenics training details</p>
+                  <p className="text-[11px] text-slate-500">Session details, readiness & symptom tracking</p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setIsWorkoutModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                aria-label="Close modal"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleSaveWorkout} className="space-y-4 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Workout Date</label>
-                <input
-                  type="date"
-                  required
-                  value={wDate}
-                  onChange={(e) => setWDate(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block font-bold text-slate-700">Routine / Workout Title</label>
-                  <span className="text-[10px] text-blue-600 font-semibold flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200/60">
-                    <Sparkles className="w-3 h-3" /> Auto-syncs exercises
-                  </span>
-                </div>
-                <select
-                  value={wName}
-                  onChange={(e) => handleRoutineTitleChange(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
-                >
-                  {availablePrograms.map((prog) => {
-                    const isCurrentOnPage = currentWorkout && currentWorkout.id === prog.id;
-                    return (
-                      <option key={prog.id} value={prog.name}>
-                        {prog.name} {isCurrentOnPage ? '★ (Active on Program Page)' : ''}
+              {/* 1. Core Session Details */}
+              <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-3.5 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Date</label>
+                    <input
+                      type="date"
+                      required
+                      value={wDate}
+                      onChange={(e) => setWDate(e.target.value)}
+                      className="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block font-bold text-slate-700">Routine / Workout Title</label>
+                      <span className="text-[10px] text-blue-600 font-semibold flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" /> Auto-syncs
+                      </span>
+                    </div>
+                    <select
+                      value={wName}
+                      onChange={(e) => handleRoutineTitleChange(e.target.value)}
+                      className="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
+                    >
+                      {availablePrograms.map((prog) => {
+                        const isCurrentOnPage = currentWorkout && currentWorkout.id === prog.id;
+                        return (
+                          <option key={prog.id} value={prog.name}>
+                            {prog.name} {isCurrentOnPage ? '★ (Active)' : ''}
+                          </option>
+                        );
+                      })}
+                      <option value="Custom Calisthenics Strength Session">
+                        Custom Calisthenics Strength Session
                       </option>
-                    );
-                  })}
-                  <option value="Custom Calisthenics Strength Session">
-                    Custom Calisthenics Strength Session
-                  </option>
-                </select>
-              </div>
+                    </select>
+                  </div>
+                </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="col-span-2 sm:col-span-2">
+                    <label className="block font-bold text-slate-700 mb-1">Prescribed Intensity</label>
+                    <select
+                      value={wIntensity}
+                      onChange={(e) => {
+                        const newIntensity = e.target.value;
+                        setWIntensity(newIntensity);
+                        const matched = availablePrograms.find(
+                          (p) => p.intensityLabel.toLowerCase() === newIntensity.toLowerCase()
+                        );
+                        if (matched) {
+                          handleRoutineTitleChange(matched.name);
+                        }
+                      }}
+                      className="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
+                    >
+                      <option value="50 - 60 % Submax intensity">50 - 60 % Submax intensity</option>
+                      <option value="100% max intensity">100% max intensity</option>
+                      <option value="GTG 20%-30%">GTG 20%-30%</option>
+                      <option value="0%-10% Nothing/Active recovery">0%-10% Nothing/Active recovery</option>
+                      <option value="Submaximal 50–60%">Submaximal 50–60%</option>
+                      <option value="100% Maximum Intensity">100% Maximum Intensity</option>
+                      <option value="Technique & Deload (40-50%)">Technique & Deload (40-50%)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Duration (min)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={240}
+                      value={wDuration}
+                      onChange={(e) => setWDuration(Number(e.target.value))}
+                      className="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Sets (Done / Total)</label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        aria-label="Sets Completed"
+                        value={wCompletedSets}
+                        onChange={(e) => setWCompletedSets(Number(e.target.value))}
+                        className="w-full px-2 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-900 text-center"
+                      />
+                      <span className="text-slate-400 font-bold">/</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        aria-label="Total Prescribed Sets"
+                        value={wTotalSets}
+                        onChange={(e) => setWTotalSets(Number(e.target.value))}
+                        className="w-full px-2 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-900 text-center"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Prescribed Intensity</label>
+                  <label className="block font-bold text-slate-700 mb-1">Perceived Effort / Target RPE</label>
                   <select
-                    value={wIntensity}
-                    onChange={(e) => {
-                      const newIntensity = e.target.value;
-                      setWIntensity(newIntensity);
-                      const matched = availablePrograms.find(
-                        (p) => p.intensityLabel.toLowerCase() === newIntensity.toLowerCase()
-                      );
-                      if (matched) {
-                        handleRoutineTitleChange(matched.name);
-                      }
-                    }}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
+                    value={wRpe}
+                    onChange={(e) => setWRpe(e.target.value)}
+                    className="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
                   >
-                    <option value="50 - 60 % Submax intensity">50 - 60 % Submax intensity</option>
-                    <option value="100% max intensity">100% max intensity</option>
-                    <option value="GTG 20%-30%">GTG 20%-30%</option>
-                    <option value="0%-10% Nothing/Active recovery">0%-10% Nothing/Active recovery</option>
-                    <option value="Submaximal 50–60%">Submaximal 50–60%</option>
-                    <option value="100% Maximum Intensity">100% Maximum Intensity</option>
-                    <option value="Technique & Deload (40-50%)">Technique & Deload (40-50%)</option>
+                    <option value="RPE 2-3 (GTG / Effortless)">RPE 2-3 (GTG / Effortless)</option>
+                    <option value="RPE 5-6 (3-4 RIR - Very Fresh)">RPE 5-6 (3-4 RIR - Very Fresh)</option>
+                    <option value="RPE 6-7 (2-3 RIR - Prescribed Submax)">RPE 6-7 (2-3 RIR - Prescribed Submax)</option>
+                    <option value="RPE 7-8 (1-2 RIR - Solid Challenge)">RPE 7-8 (1-2 RIR - Solid Challenge)</option>
+                    <option value="RPE 8-9 (1 RIR - Heavy)">RPE 8-9 (1 RIR - Heavy)</option>
+                    <option value="RPE 9.5-10 (0 RIR - True Maximum)">RPE 9.5-10 (0 RIR - True Maximum)</option>
                   </select>
                 </div>
 
+                {/* Compact Exercises Performed + Toggleable Chip Picker */}
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Duration (minutes)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={240}
-                    value={wDuration}
-                    onChange={(e) => setWDuration(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Sets Completed</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={wCompletedSets}
-                    onChange={(e) => setWCompletedSets(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Total Prescribed Sets</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={wTotalSets}
-                    onChange={(e) => setWTotalSets(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Perceived Effort / Target RPE</label>
-                <select
-                  value={wRpe}
-                  onChange={(e) => setWRpe(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900"
-                >
-                  <option value="RPE 2-3 (GTG / Effortless)">RPE 2-3 (GTG / Effortless)</option>
-                  <option value="RPE 5-6 (3-4 RIR - Very Fresh)">RPE 5-6 (3-4 RIR - Very Fresh)</option>
-                  <option value="RPE 6-7 (2-3 RIR - Prescribed Submax)">RPE 6-7 (2-3 RIR - Prescribed Submax)</option>
-                  <option value="RPE 7-8 (1-2 RIR - Solid Challenge)">RPE 7-8 (1-2 RIR - Solid Challenge)</option>
-                  <option value="RPE 8-9 (1 RIR - Heavy)">RPE 8-9 (1 RIR - Heavy)</option>
-                  <option value="RPE 9.5-10 (0 RIR - True Maximum)">RPE 9.5-10 (0 RIR - True Maximum)</option>
-                </select>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block font-bold text-slate-700">Exercises Performed</label>
-                  {matchedProgram && (
-                    <button
-                      type="button"
-                      onClick={() => setWExercises(getExercisesStringFromWorkout(matchedProgram))}
-                      className="text-[10px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200/60 transition-colors"
-                      title="Reset exercises back to program default"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      <span>Reload {matchedProgram.intensityLabel} Exercises</span>
-                    </button>
-                  )}
-                </div>
-                <textarea
-                  rows={3}
-                  value={wExercises}
-                  onChange={(e) => setWExercises(e.target.value)}
-                  placeholder="e.g. Frog Planche with Raised Legs, Planche Leans, Dumbbell Leans..."
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900 leading-relaxed text-xs"
-                />
-
-                {/* Interactive Exercise Chips from the Selected Routine on the Program Page */}
-                {matchedProgram && (
-                  <div className="mt-2 p-2.5 bg-blue-50/50 rounded-xl border border-blue-100 space-y-1.5">
-                    <div className="flex items-center justify-between text-[11px] font-bold text-blue-900">
-                      <span className="flex items-center gap-1.5">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
-                        Exercises from {matchedProgram.name} ({matchedProgram.phases.flatMap((p) => p.exercises).length} total):
-                      </span>
-                      <span className="text-[10px] text-slate-500 font-normal">Click chip to toggle</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {matchedProgram.phases.flatMap((p) => p.exercises).map((ex) => {
-                        const isIncluded = wExercises.toLowerCase().includes(ex.name.toLowerCase());
-                        return (
+                  <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+                    <label className="block font-bold text-slate-700">Exercises Performed</label>
+                    <div className="flex items-center gap-1.5">
+                      {matchedProgram && (
+                        <>
                           <button
                             type="button"
-                            key={ex.id}
-                            onClick={() => {
-                              if (isIncluded) {
-                                const parts = wExercises.split(/,\s*/).filter(p => !p.toLowerCase().includes(ex.name.toLowerCase()));
-                                setWExercises(parts.join(', '));
-                              } else {
-                                const prefix = wExercises.trim() ? `${wExercises.trim()}, ` : '';
-                                setWExercises(`${prefix}${ex.name}`);
-                              }
-                            }}
-                            className={`text-[10px] px-2 py-1 rounded-lg font-medium cursor-pointer transition-colors border flex items-center gap-1 ${
-                              isIncluded
-                                ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
-                                : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
-                            }`}
-                            title={isIncluded ? 'Click to remove from exercises list' : 'Click to add to exercises list'}
+                            onClick={() => setShowExerciseChips((prev) => !prev)}
+                            className="text-[10px] font-semibold text-slate-600 hover:text-slate-900 bg-white px-2 py-0.5 rounded-md border border-slate-200 cursor-pointer transition-colors"
                           >
-                            <span>{isIncluded ? '✓' : '+'}</span>
-                            <span>{ex.name}</span>
+                            {showExerciseChips ? 'Hide Exercise Chips' : `Customize (${matchedProgram.phases.flatMap((p) => p.exercises).length})`}
                           </button>
-                        );
-                      })}
+                          <button
+                            type="button"
+                            onClick={() => setWExercises(getExercisesStringFromWorkout(matchedProgram))}
+                            className="text-[10px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200/60 transition-colors"
+                            title="Reset exercises back to program default"
+                          >
+                            <RotateCcw className="w-2.5 h-2.5" />
+                            <span>Reload</span>
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
-                )}
+                  <textarea
+                    rows={2}
+                    value={wExercises}
+                    onChange={(e) => setWExercises(e.target.value)}
+                    placeholder="e.g. Frog Planche with Raised Legs, Planche Leans, Dumbbell Leans..."
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900 leading-relaxed text-xs"
+                  />
+                  {matchedProgram && showExerciseChips && (
+                    <div className="mt-2 p-2.5 bg-white rounded-xl border border-slate-200 space-y-1.5">
+                      <div className="flex items-center justify-between text-[10px] font-bold text-slate-700">
+                        <span>Exercises from {matchedProgram.name}</span>
+                        <span className="text-slate-400 font-normal">Click to toggle</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {matchedProgram.phases.flatMap((p) => p.exercises).map((ex) => {
+                          const isIncluded = wExercises.toLowerCase().includes(ex.name.toLowerCase());
+                          return (
+                            <button
+                              type="button"
+                              key={ex.id}
+                              onClick={() => {
+                                if (isIncluded) {
+                                  const parts = wExercises.split(/,\s*/).filter((p) => !p.toLowerCase().includes(ex.name.toLowerCase()));
+                                  setWExercises(parts.join(', '));
+                                } else {
+                                  const prefix = wExercises.trim() ? `${wExercises.trim()}, ` : '';
+                                  setWExercises(`${prefix}${ex.name}`);
+                                }
+                              }}
+                              className={`text-[10px] px-2 py-1 rounded-lg font-medium cursor-pointer transition-colors border flex items-center gap-1 ${
+                                isIncluded
+                                  ? 'bg-blue-600 text-white border-blue-600'
+                                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-blue-300'
+                              }`}
+                            >
+                              <span>{isIncluded ? '✓' : '+'}</span>
+                              <span>{ex.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
+              {/* 2. Session Performance */}
+              <div className="space-y-1.5">
+                <label className="block font-bold text-slate-800">Session Performance</label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {SESSION_PERFORMANCE_OPTIONS.map((opt) => {
+                    const selected = wSessionPerformance === opt.value;
+                    const activeClasses =
+                      opt.tone === 'green'
+                        ? 'bg-emerald-50 border-emerald-400 text-emerald-900 ring-1 ring-emerald-400'
+                        : opt.tone === 'amber'
+                        ? 'bg-amber-50 border-amber-400 text-amber-900 ring-1 ring-amber-400'
+                        : 'bg-rose-50 border-rose-400 text-rose-900 ring-1 ring-rose-400';
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setWSessionPerformance(selected ? '' : opt.value)}
+                        className={`text-left p-2.5 rounded-xl border transition-all cursor-pointer ${
+                          selected
+                            ? activeClasses
+                            : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="font-bold text-xs flex items-center justify-between">
+                          <span>{opt.label}</span>
+                          {selected && <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />}
+                        </div>
+                        <div className="text-[10px] opacity-80 leading-snug mt-0.5">{opt.description}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 3. Fatigue & Neuromuscular Tracking (3 independent selections) */}
+              <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-3.5 space-y-3">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Fatigue &amp; Neuromuscular Tracking
+                </div>
+
+                {/* Physical Fatigue */}
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-800">Physical Fatigue</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {PHYSICAL_FATIGUE_OPTIONS.map((opt) => {
+                      const selected = wPhysicalFatigue === opt.value;
+                      const activeClasses =
+                        opt.tone === 'green'
+                          ? 'bg-emerald-50 border-emerald-400 text-emerald-900 ring-1 ring-emerald-400'
+                          : opt.tone === 'amber'
+                          ? 'bg-amber-50 border-amber-400 text-amber-900 ring-1 ring-amber-400'
+                          : 'bg-rose-50 border-rose-400 text-rose-900 ring-1 ring-rose-400';
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setWPhysicalFatigue(selected ? '' : opt.value)}
+                          className={`text-left p-2 rounded-xl border transition-all cursor-pointer ${
+                            selected
+                              ? activeClasses
+                              : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="font-bold text-xs">{opt.label}</div>
+                          <div className="text-[10px] opacity-80 leading-snug mt-0.5">{opt.description}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Neuromuscular Control */}
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-800">Neuromuscular Control</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {NEUROMUSCULAR_CONTROL_OPTIONS.map((opt) => {
+                      const selected = wNeuromuscularControl === opt.value;
+                      const activeClasses =
+                        opt.tone === 'green'
+                          ? 'bg-emerald-50 border-emerald-400 text-emerald-900 ring-1 ring-emerald-400'
+                          : opt.tone === 'amber'
+                          ? 'bg-amber-50 border-amber-400 text-amber-900 ring-1 ring-amber-400'
+                          : 'bg-rose-50 border-rose-400 text-rose-900 ring-1 ring-rose-400';
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setWNeuromuscularControl(selected ? '' : opt.value)}
+                          className={`text-left p-2 rounded-xl border transition-all cursor-pointer ${
+                            selected
+                              ? activeClasses
+                              : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="font-bold text-xs">{opt.label}</div>
+                          <div className="text-[10px] opacity-80 leading-snug mt-0.5">{opt.description}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Skill Performance */}
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-800">Skill Performance</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {SKILL_PERFORMANCE_OPTIONS.map((opt) => {
+                      const selected = wSkillPerformance === opt.value;
+                      const activeClasses =
+                        opt.tone === 'green'
+                          ? 'bg-emerald-50 border-emerald-400 text-emerald-900 ring-1 ring-emerald-400'
+                          : opt.tone === 'amber'
+                          ? 'bg-amber-50 border-amber-400 text-amber-900 ring-1 ring-amber-400'
+                          : 'bg-rose-50 border-rose-400 text-rose-900 ring-1 ring-rose-400';
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setWSkillPerformance(selected ? '' : opt.value)}
+                          className={`text-left p-2 rounded-xl border transition-all cursor-pointer ${
+                            selected
+                              ? activeClasses
+                              : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="font-bold text-xs">{opt.label}</div>
+                          <div className="text-[10px] opacity-80 leading-snug mt-0.5">{opt.description}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. Symptom Tracking */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="block font-bold text-slate-800">Symptoms</label>
+                  <span className="text-[10px] text-slate-400">Select all that apply</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {SYMPTOM_TAGS.map((tag) => {
+                    const isSelected = wSymptoms.includes(tag);
+                    const isNone = tag === NO_UNUSUAL_SYMPTOMS_TAG;
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => setWSymptoms((prev) => toggleSymptomSelection(prev, tag))}
+                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${
+                          isSelected
+                            ? isNone
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-400 ring-1 ring-emerald-400'
+                              : 'bg-amber-50 text-amber-900 border-amber-400 ring-1 ring-amber-400'
+                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        {isSelected ? '✓ ' : ''}
+                        {tag}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 5. Simplified Athlete Feedback */}
               <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Athlete Biofeedback & Session Notes
+                <label className="block font-bold text-slate-800 mb-1">
+                  Athlete Feedback <span className="font-normal text-slate-400">(optional)</span>
                 </label>
                 <textarea
-                  rows={3}
+                  rows={2}
                   value={wNotes}
                   onChange={(e) => setWNotes(e.target.value)}
-                  placeholder="How did you feel today? E.g., 'Felt snappy on tuck planche holds. Protraction was solid, no elbow discomfort. RPE 6.5.'"
+                  placeholder="What went well? What struggled? Did anything affect your performance today?"
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-900 leading-relaxed"
                 />
               </div>

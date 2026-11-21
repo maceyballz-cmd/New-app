@@ -476,6 +476,7 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
     // Save workout record in history
     const logs = JSON.parse(localStorage.getItem('planche_workout_history') || '[]');
     const newEntry = {
+      id: `live_${Date.now()}`,
       date: new Date().toISOString(),
       workoutName: workout.name,
       workoutIntensity: workout.intensityLabel,
@@ -484,6 +485,7 @@ export const WorkoutSessionCompanion: React.FC<WorkoutSessionCompanionProps> = (
       progressPercent,
       targetRpe: workout.meta.targetRPE || 'RPE 5–7',
       notes: sessionNotes.trim(),
+      exercises: allExercises.map((e) => e.name).join(', '),
     };
     logs.unshift(newEntry);
     localStorage.setItem('planche_workout_history', JSON.stringify(logs.slice(0, 50)));
