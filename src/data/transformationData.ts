@@ -460,3 +460,64 @@ export function saveStoredNutritionSteps(steps: NutritionHeaderStep[]): void {
     // ignore
   }
 }
+
+export type MeasureUnit = 'cm' | 'in';
+
+export const CM_PER_INCH = 2.54;
+const MEASURE_UNIT_KEY = 'planche_transformation_measure_unit';
+
+export function parseMeasureUnitFromMode(unitMode?: unknown): MeasureUnit {
+  if (typeof unitMode === 'string') {
+    const normalized = unitMode.toLowerCase();
+    if (normalized === 'in' || normalized === 'lbs_in' || normalized === 'kg_in') {
+      return 'in';
+    }
+  }
+  return 'cm';
+}
+
+export function toStoredUnitMode(unit: MeasureUnit): 'lbs_cm' | 'lbs_in' {
+  return unit === 'in' ? 'lbs_in' : 'lbs_cm';
+}
+
+export function getStoredMeasureUnit(): MeasureUnit {
+  if (typeof window === 'undefined') return 'cm';
+  try {
+    const raw = localStorage.getItem(MEASURE_UNIT_KEY);
+    return raw === 'in' ? 'in' : 'cm';
+  } catch {
+    return 'cm';
+  }
+}
+
+export function saveStoredMeasureUnit(unit: MeasureUnit): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(MEASURE_UNIT_KEY, unit);
+  } catch {
+    // ignore
+  }
+}
+
+export function cmNumberToUnit(cmVal: number, unit: MeasureUnit): number {
+  return unit === 'in' ? cmVal / CM_PER_INCH : cmVal;
+}
+
+export function formatCmForDisplay(cmRaw: string, unit: MeasureUnit): string {
+  const trimmed = String(cmRaw ?? '').trim();
+  if (!trimmed) return '';
+  if (unit === 'cm') return trimmed;
+  const num = parseFloat(trimmed);
+  if (Number.isNaN(num)) return trimmed;
+  return (num / CM_PER_INCH).toFixed(1);
+}
+
+export function convertInputToCm(inputRaw: string, unit: MeasureUnit): string {
+  const trimmed = String(inputRaw ?? '').trim();
+  if (!trimmed) return '';
+  const num = parseFloat(trimmed);
+  if (Number.isNaN(num)) return trimmed;
+  if (unit === 'cm') return trimmed;
+  return (num * CM_PER_INCH).toFixed(1);
+}
+

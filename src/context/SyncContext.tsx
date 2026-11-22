@@ -22,10 +22,15 @@ import {
 import {
   WeeklyProgressEntry,
   NutritionHeaderStep,
+  MeasureUnit,
   getStoredTransformationData,
   saveStoredTransformationData,
   saveStoredNutritionSteps,
   normalizeDailyWeighIns,
+  getStoredMeasureUnit,
+  saveStoredMeasureUnit,
+  parseMeasureUnitFromMode,
+  toStoredUnitMode,
 } from '../data/transformationData';
 import { CalendarDayLog } from '../components/WorkoutCalendarView';
 import {
@@ -176,6 +181,7 @@ interface SyncContextType {
   deleteCalendarLogFromCloud: (logId: string) => Promise<void>;
   saveTransformationToCloud: (startDate: string, entries: WeeklyProgressEntry[]) => Promise<void>;
   saveNutritionStepsToCloud: (steps: NutritionHeaderStep[], startDate?: string) => Promise<void>;
+  saveMeasureUnitToCloud: (unit: MeasureUnit, startDate?: string) => Promise<void>;
   saveRoadmapPathFocusToCloud: (focus: RoadmapPathFocus) => Promise<void>;
   saveCustomWorkoutToCloud: (workout: WorkoutProgram) => Promise<void>;
 }
@@ -322,6 +328,11 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (metaDoc.exists()) {
           const metaData = metaDoc.data();
           metaStartDate = metaData?.startDate || '';
+          if (metaData?.unitMode) {
+            const parsedUnit = parseMeasureUnitFromMode(metaData.unitMode);
+            saveStoredMeasureUnit(parsedUnit);
+            window.dispatchEvent(new Event('planche_measure_unit_updated'));
+          }
           if (metaData?.nutritionStepsJson) {
             try {
               const parsedSteps = JSON.parse(metaData.nutritionStepsJson);
@@ -581,7 +592,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
             batch.set(metaRef, {
               userId: uid,
               startDate: localTrans.startDate,
-              unitMode: 'lbs_cm',
+              unitMode: toStoredUnitMode(getStoredMeasureUnit()),
               updatedAt: new Date().toISOString(),
             });
 
@@ -919,6 +930,13 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           if (docSnap.exists()) {
             const metaData = docSnap.data();
+            if (metaData?.unitMode) {
+              const parsedUnit = parseMeasureUnitFromMode(metaData.unitMode);
+              if (parsedUnit !== getStoredMeasureUnit()) {
+                saveStoredMeasureUnit(parsedUnit);
+                window.dispatchEvent(new Event('planche_measure_unit_updated'));
+              }
+            }
             if (metaData?.nutritionStepsJson) {
               const parsedSteps = JSON.parse(metaData.nutritionStepsJson);
               if (Array.isArray(parsedSteps) && parsedSteps.length === 3) {
@@ -1110,7 +1128,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
         {
           userId: user.uid,
           startDate: startDate,
-          unitMode: 'lbs_cm',
+          unitMode: toStoredUnitMode(getStoredMeasureUnit()),
           updatedAt: new Date().toISOString(),
         },
         { merge: true }
@@ -1188,6 +1206,30 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLastSyncedAt(new Date());
     } catch (err) {
       console.warn('Error saving nutrition steps to cloud:', err);
+    }
+  };
+
+  const saveMeasureUnitToCloud = async (unit: MeasureUnit, startDate?: string) => {
+    if (!user) return;
+    try {
+      setSyncStatus('syncing');
+      const effectiveStartDate = (startDate || getStoredTransformationData().startDate || '2026-10-17').slice(0, 32);
+      const metaRef = doc(db, 'users', user.uid, 'transformationMeta', 'settings');
+      await setDoc(
+        metaRef,
+        {
+          userId: user.uid,
+          startDate: effectiveStartDate,
+          unitMode: toStoredUnitMode(unit),
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      setSyncStatus('synced');
+      setLastSyncedAt(new Date());
+    } catch (err) {
+      console.warn('Error saving measurement unit to cloud:', err);
+      handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/transformationMeta/settings`);
     }
   };
 
@@ -1332,6 +1374,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
         deleteCalendarLogFromCloud,
         saveTransformationToCloud,
         saveNutritionStepsToCloud,
+        saveMeasureUnitToCloud,
         saveRoadmapPathFocusToCloud,
         saveCustomWorkoutToCloud,
       }}

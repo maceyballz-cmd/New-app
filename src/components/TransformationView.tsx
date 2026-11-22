@@ -26,6 +26,7 @@ import {
 import {
   WeeklyProgressEntry,
   NutritionHeaderStep,
+  MeasureUnit,
   DEFAULT_NUTRITION_STEPS,
   INITIAL_START_DATE,
   calculateDateForWeek,
@@ -37,12 +38,17 @@ import {
   saveStoredTransformationData,
   getStoredNutritionSteps,
   saveStoredNutritionSteps,
+  getStoredMeasureUnit,
+  saveStoredMeasureUnit,
+  cmNumberToUnit,
+  formatCmForDisplay,
+  convertInputToCm,
 } from '../data/transformationData';
 import { CalorieCalculator } from './CalorieCalculator';
 import { DailyWeighInTracker } from './DailyWeighInTracker';
 
 export const TransformationView: React.FC = () => {
-  const { saveTransformationToCloud, saveNutritionStepsToCloud } = useSync();
+  const { saveTransformationToCloud, saveNutritionStepsToCloud, saveMeasureUnitToCloud } = useSync();
   const [data, setData] = useState<{
     startDate: string;
     entries: WeeklyProgressEntry[];
@@ -78,7 +84,7 @@ export const TransformationView: React.FC = () => {
   const [comparisonWeekA, setComparisonWeekA] = useState<number>(0);
   const [comparisonWeekB, setComparisonWeekB] = useState<number>(4);
   const [enlargedPhoto, setEnlargedPhoto] = useState<{ url: string; title: string } | null>(null);
-  const [unitMode, setUnitMode] = useState<'lbs_cm' | 'kg_cm'>('lbs_cm');
+  const [measureUnit, setMeasureUnit] = useState<MeasureUnit>(() => getStoredMeasureUnit());
   const [saveToast, setSaveToast] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -95,11 +101,16 @@ export const TransformationView: React.FC = () => {
     const handleStepsRemoteUpdate = () => {
       setHeaderSteps(getStoredNutritionSteps());
     };
+    const handleUnitRemoteUpdate = () => {
+      setMeasureUnit(getStoredMeasureUnit());
+    };
     window.addEventListener('planche_transformation_updated', handleRemoteUpdate);
     window.addEventListener('planche_nutrition_steps_updated', handleStepsRemoteUpdate);
+    window.addEventListener('planche_measure_unit_updated', handleUnitRemoteUpdate);
     return () => {
       window.removeEventListener('planche_transformation_updated', handleRemoteUpdate);
       window.removeEventListener('planche_nutrition_steps_updated', handleStepsRemoteUpdate);
+      window.removeEventListener('planche_measure_unit_updated', handleUnitRemoteUpdate);
       if (stepsSyncTimerRef.current) clearTimeout(stepsSyncTimerRef.current);
       if (weighInSyncTimerRef.current) clearTimeout(weighInSyncTimerRef.current);
     };
@@ -118,6 +129,19 @@ export const TransformationView: React.FC = () => {
     saveStoredTransformationData(newDate, updatedEntries);
     saveTransformationToCloud(newDate, updatedEntries);
     if (toastMsg) triggerSaveNotification(toastMsg);
+  };
+
+  // Switch body measurements display & entry units (cm <-> in)
+  const handleMeasureUnitChange = (nextUnit: MeasureUnit) => {
+    if (nextUnit === measureUnit) return;
+    setMeasureUnit(nextUnit);
+    saveStoredMeasureUnit(nextUnit);
+    saveMeasureUnitToCloud(nextUnit, data.startDate);
+    triggerSaveNotification(
+      nextUnit === 'in'
+        ? 'Spreadsheet measurements switched to inches (in)'
+        : 'Spreadsheet measurements switched to centimeters (cm)'
+    );
   };
 
   // Handle start date update
@@ -322,16 +346,16 @@ export const TransformationView: React.FC = () => {
           return s.avg !== null ? `"${s.avg.toFixed(1)}"` : '""';
         }),
       ],
-      ['Chest (cm)', ...data.entries.map((e) => `"${e.chest}"`)],
-      ['Right Arm (cm)', ...data.entries.map((e) => `"${e.rightArm}"`)],
-      ['Left Arm (cm)', ...data.entries.map((e) => `"${e.leftArm}"`)],
-      ['3 Fingers Above Navel (cm)', ...data.entries.map((e) => `"${e.navelAbove}"`)],
-      ['Stomach at Navel (cm)', ...data.entries.map((e) => `"${e.navelAt}"`)],
-      ['3 Fingers Below Navel (cm)', ...data.entries.map((e) => `"${e.navelBelow}"`)],
-      ['Hips (cm)', ...data.entries.map((e) => `"${e.hips}"`)],
-      ['Right Thigh (cm)', ...data.entries.map((e) => `"${e.rightThigh}"`)],
-      ['Left Thigh (cm)', ...data.entries.map((e) => `"${e.leftThigh}"`)],
-      ['Height (cm)', ...data.entries.map((e) => `"${e.height}"`)],
+      [`Chest (${measureUnit})`, ...data.entries.map((e) => `"${formatCmForDisplay(e.chest, measureUnit)}"`)],
+      [`Right Arm (${measureUnit})`, ...data.entries.map((e) => `"${formatCmForDisplay(e.rightArm, measureUnit)}"`)],
+      [`Left Arm (${measureUnit})`, ...data.entries.map((e) => `"${formatCmForDisplay(e.leftArm, measureUnit)}"`)],
+      [`3 Fingers Above Navel (${measureUnit})`, ...data.entries.map((e) => `"${formatCmForDisplay(e.navelAbove, measureUnit)}"`)],
+      [`Stomach at Navel (${measureUnit})`, ...data.entries.map((e) => `"${formatCmForDisplay(e.navelAt, measureUnit)}"`)],
+      [`3 Fingers Below Navel (${measureUnit})`, ...data.entries.map((e) => `"${formatCmForDisplay(e.navelBelow, measureUnit)}"`)],
+      [`Hips (${measureUnit})`, ...data.entries.map((e) => `"${formatCmForDisplay(e.hips, measureUnit)}"`)],
+      [`Right Thigh (${measureUnit})`, ...data.entries.map((e) => `"${formatCmForDisplay(e.rightThigh, measureUnit)}"`)],
+      [`Left Thigh (${measureUnit})`, ...data.entries.map((e) => `"${formatCmForDisplay(e.leftThigh, measureUnit)}"`)],
+      [`Height (${measureUnit})`, ...data.entries.map((e) => `"${formatCmForDisplay(e.height, measureUnit)}"`)],
       ['Target Rate of Weight Change', ...data.entries.map((e) => `"${e.targetRateWeight}"`)],
       ['Target Daily Steps', ...data.entries.map((e) => `"${e.targetDailySteps}"`)],
       ['Actual Daily Steps', ...data.entries.map((e) => `"${e.actualDailySteps}"`)],
@@ -466,7 +490,12 @@ export const TransformationView: React.FC = () => {
   const startNavel = parseFloat(data.entries[0]?.navelAt) || 0;
   const currentNavelEntry = [...data.entries].reverse().find((e) => e.navelAt && parseFloat(e.navelAt) > 0) || null;
   const currentNavel = currentNavelEntry ? parseFloat(currentNavelEntry.navelAt) : (startNavel || 0);
-  const navelChange = currentNavel && startNavel ? (currentNavel - startNavel).toFixed(1) : '0.0';
+  const displayStartNavel = startNavel > 0 ? cmNumberToUnit(startNavel, measureUnit) : 0;
+  const displayCurrentNavel = currentNavel > 0 ? cmNumberToUnit(currentNavel, measureUnit) : 0;
+  const navelChange =
+    displayCurrentNavel > 0 && displayStartNavel > 0
+      ? (displayCurrentNavel - displayStartNavel).toFixed(1)
+      : '0.0';
 
   // Selected entry for photos tab
   const currentSelectedPhotoEntry = data.entries.find((e) => e.weekNumber === selectedPhotoWeek) || data.entries[0];
@@ -631,6 +660,36 @@ export const TransformationView: React.FC = () => {
               />
             </div>
 
+            <div
+              className="inline-flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-lg p-1"
+              role="group"
+              aria-label="Measurement units"
+            >
+              <Ruler className="w-3.5 h-3.5 text-slate-500 ml-1.5 mr-0.5" />
+              <button
+                type="button"
+                onClick={() => handleMeasureUnitChange('cm')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                  measureUnit === 'cm'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                cm
+              </button>
+              <button
+                type="button"
+                onClick={() => handleMeasureUnitChange('in')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                  measureUnit === 'in'
+                    ? 'bg-white text-blue-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                inches
+              </button>
+            </div>
+
             <button
               onClick={handleExportCSV}
               type="button"
@@ -755,16 +814,16 @@ export const TransformationView: React.FC = () => {
             </span>
             <div className="flex items-baseline gap-1.5 mt-1">
               <span className="text-xl font-bold text-slate-900 tabular-nums">
-                {currentNavel > 0 ? `${currentNavel}` : '—'}
+                {displayCurrentNavel > 0 ? displayCurrentNavel.toFixed(1) : '—'}
               </span>
-              <span className="text-xs text-slate-500">cm</span>
-              {startNavel > 0 && currentNavel > 0 && (
+              <span className="text-xs text-slate-500">{measureUnit}</span>
+              {displayStartNavel > 0 && displayCurrentNavel > 0 && (
                 <span
                   className={`ml-auto text-xs font-semibold tabular-nums ${
                     parseFloat(navelChange) <= 0 ? 'text-emerald-600' : 'text-amber-600'
                   }`}
                 >
-                  {parseFloat(navelChange) > 0 ? `+${navelChange}` : navelChange} cm
+                  {parseFloat(navelChange) > 0 ? `+${navelChange}` : navelChange} {measureUnit}
                 </span>
               )}
             </div>
@@ -865,7 +924,35 @@ export const TransformationView: React.FC = () => {
                 <strong>Click any cell</strong> to edit directly. Golden columns (<strong>Week 4, Week 8, Week 12</strong>) represent major review milestones.
               </span>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-0.5 shadow-2xs">
+                <span className="text-[11px] font-medium text-slate-500 pl-2 pr-1 flex items-center gap-1">
+                  <Ruler className="w-3 h-3 text-slate-400" />
+                  Units:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleMeasureUnitChange('cm')}
+                  className={`px-2 py-0.5 text-[11px] font-semibold rounded-md transition-colors cursor-pointer ${
+                    measureUnit === 'cm'
+                      ? 'bg-slate-900 text-white'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  cm
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleMeasureUnitChange('in')}
+                  className={`px-2 py-0.5 text-[11px] font-semibold rounded-md transition-colors cursor-pointer ${
+                    measureUnit === 'in'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  in (inches)
+                </button>
+              </div>
               <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
                 ★ Milestone Check (W4, W8, W12)
               </span>
@@ -978,92 +1065,112 @@ export const TransformationView: React.FC = () => {
 
                 {/* Chest */}
                 <TableRowInput
-                  label="Chest (cm)"
+                  label={`Chest (${measureUnit})`}
                   badge="Nipples line"
                   field="chest"
                   entries={data.entries}
                   onChange={handleCellChange}
+                  isLengthMeasurement
+                  measureUnit={measureUnit}
                 />
 
                 {/* Right Arm */}
                 <TableRowInput
-                  label="Right Arm (cm)"
+                  label={`Right Arm (${measureUnit})`}
                   badge="Flexed peak"
                   field="rightArm"
                   entries={data.entries}
                   onChange={handleCellChange}
+                  isLengthMeasurement
+                  measureUnit={measureUnit}
                 />
 
                 {/* Left Arm */}
                 <TableRowInput
-                  label="Left Arm (cm)"
+                  label={`Left Arm (${measureUnit})`}
                   badge="Flexed peak"
                   field="leftArm"
                   entries={data.entries}
                   onChange={handleCellChange}
+                  isLengthMeasurement
+                  measureUnit={measureUnit}
                 />
 
                 {/* 3 Fingers Above Navel */}
                 <TableRowInput
-                  label="3 Fingers Above Navel (cm)"
+                  label={`3 Fingers Above Navel (${measureUnit})`}
                   badge="Narrowest"
                   field="navelAbove"
                   entries={data.entries}
                   onChange={handleCellChange}
+                  isLengthMeasurement
+                  measureUnit={measureUnit}
                 />
 
                 {/* Stomach at Navel */}
                 <TableRowInput
-                  label="Stomach at Navel (cm)"
+                  label={`Stomach at Navel (${measureUnit})`}
                   badge="Key belly fat"
                   field="navelAt"
                   entries={data.entries}
                   onChange={handleCellChange}
                   highlight
+                  isLengthMeasurement
+                  measureUnit={measureUnit}
                 />
 
                 {/* 3 Fingers Below Navel */}
                 <TableRowInput
-                  label="3 Fingers Below Navel (cm)"
+                  label={`3 Fingers Below Navel (${measureUnit})`}
                   badge="Lower belly"
                   field="navelBelow"
                   entries={data.entries}
                   onChange={handleCellChange}
+                  isLengthMeasurement
+                  measureUnit={measureUnit}
                 />
 
                 {/* Hips */}
                 <TableRowInput
-                  label="Hips (cm)"
+                  label={`Hips (${measureUnit})`}
                   badge="Widest glutes"
                   field="hips"
                   entries={data.entries}
                   onChange={handleCellChange}
+                  isLengthMeasurement
+                  measureUnit={measureUnit}
                 />
 
                 {/* Right Thigh */}
                 <TableRowInput
-                  label="Right Thigh (cm)"
+                  label={`Right Thigh (${measureUnit})`}
                   badge="Mid-thigh"
                   field="rightThigh"
                   entries={data.entries}
                   onChange={handleCellChange}
+                  isLengthMeasurement
+                  measureUnit={measureUnit}
                 />
 
                 {/* Left Thigh */}
                 <TableRowInput
-                  label="Left Thigh (cm)"
+                  label={`Left Thigh (${measureUnit})`}
                   badge="Mid-thigh"
                   field="leftThigh"
                   entries={data.entries}
                   onChange={handleCellChange}
+                  isLengthMeasurement
+                  measureUnit={measureUnit}
                 />
 
                 {/* Height */}
                 <TableRowInput
-                  label="Height (cm)"
+                  label={`Height (${measureUnit})`}
                   field="height"
                   entries={data.entries}
                   onChange={handleCellChange}
+                  isLengthMeasurement
+                  measureUnit={measureUnit}
                 />
 
                 {/* Target Rate of Weight Change */}
@@ -1358,7 +1465,10 @@ export const TransformationView: React.FC = () => {
                   {currentSelectedPhotoEntry.weekLabel} ({currentSelectedPhotoEntry.date}) Photos
                 </h3>
                 <span className="text-xs text-slate-500">
-                  Body Weight: {currentSelectedPhotoEntry.weight ? `${currentSelectedPhotoEntry.weight} lbs` : 'Not logged'} · Waist: {currentSelectedPhotoEntry.navelAt ? `${currentSelectedPhotoEntry.navelAt} cm` : 'Not logged'}
+                  Body Weight: {currentSelectedPhotoEntry.weight ? `${currentSelectedPhotoEntry.weight} lbs` : 'Not logged'} · Waist:{' '}
+                  {currentSelectedPhotoEntry.navelAt
+                    ? `${formatCmForDisplay(currentSelectedPhotoEntry.navelAt, measureUnit)} ${measureUnit}`
+                    : 'Not logged'}
                 </span>
               </div>
             </div>
@@ -1481,7 +1591,9 @@ export const TransformationView: React.FC = () => {
                   </span>
                   <span className="text-xs text-slate-600 font-semibold tabular-nums">
                     {compEntryA.weight ? `${compEntryA.weight} lbs` : '—'} | Waist:{' '}
-                    {compEntryA.navelAt ? `${compEntryA.navelAt} cm` : '—'}
+                    {compEntryA.navelAt
+                      ? `${formatCmForDisplay(compEntryA.navelAt, measureUnit)} ${measureUnit}`
+                      : '—'}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -1519,7 +1631,9 @@ export const TransformationView: React.FC = () => {
                   </span>
                   <span className="text-xs text-slate-600 font-semibold tabular-nums">
                     {compEntryB.weight ? `${compEntryB.weight} lbs` : '—'} | Waist:{' '}
-                    {compEntryB.navelAt ? `${compEntryB.navelAt} cm` : '—'}
+                    {compEntryB.navelAt
+                      ? `${formatCmForDisplay(compEntryB.navelAt, measureUnit)} ${measureUnit}`
+                      : '—'}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -1557,6 +1671,84 @@ export const TransformationView: React.FC = () => {
 };
 
 /* --- Table Sub-Row Helper for Interactive Spreadsheet Cells --- */
+interface SpreadsheetCellInputProps {
+  canonicalVal: string;
+  isMilestone?: boolean;
+  highlight?: boolean;
+  isLengthMeasurement?: boolean;
+  measureUnit: MeasureUnit;
+  onCommit: (canonicalNextVal: string) => void;
+}
+
+const SpreadsheetCellInput: React.FC<SpreadsheetCellInputProps> = ({
+  canonicalVal,
+  isMilestone,
+  highlight,
+  isLengthMeasurement,
+  measureUnit,
+  onCommit,
+}) => {
+  const [isFocused, setIsFocused] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  const displayVal = isLengthMeasurement
+    ? formatCmForDisplay(canonicalVal, measureUnit)
+    : canonicalVal;
+
+  const handleFocus = () => {
+    setDraft(displayVal);
+    setIsFocused(true);
+  };
+
+  const handleBlur = () => {
+    setIsFocused(false);
+    if (!isLengthMeasurement) return;
+    const nextCanonical = convertInputToCm(draft, measureUnit);
+    if (nextCanonical !== canonicalVal) {
+      onCommit(nextCanonical);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur();
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    if (isLengthMeasurement) {
+      setDraft(raw);
+    } else {
+      onCommit(raw);
+    }
+  };
+
+  const activeValue = isLengthMeasurement && isFocused ? draft : displayVal;
+
+  return (
+    <td
+      className={`p-0 border-r border-slate-200 text-center ${
+        isMilestone ? 'bg-amber-50/40' : ''
+      }`}
+    >
+      <input
+        type="text"
+        inputMode={isLengthMeasurement ? 'decimal' : undefined}
+        value={activeValue}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        onChange={handleChange}
+        placeholder="—"
+        className={`w-full px-2.5 py-2 text-center text-xs tabular-nums bg-transparent focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
+          highlight && activeValue ? 'font-semibold text-slate-900' : 'text-slate-700'
+        }`}
+      />
+    </td>
+  );
+};
+
 interface TableRowInputProps {
   label: string;
   badge?: string;
@@ -1564,6 +1756,8 @@ interface TableRowInputProps {
   entries: WeeklyProgressEntry[];
   onChange: (weekNum: number, field: keyof WeeklyProgressEntry, val: string) => void;
   highlight?: boolean;
+  isLengthMeasurement?: boolean;
+  measureUnit?: MeasureUnit;
 }
 
 const TableRowInput: React.FC<TableRowInputProps> = ({
@@ -1573,6 +1767,8 @@ const TableRowInput: React.FC<TableRowInputProps> = ({
   entries,
   onChange,
   highlight,
+  isLengthMeasurement = false,
+  measureUnit = 'cm',
 }) => {
   return (
     <tr className={`hover:bg-blue-50/40 transition-colors ${highlight ? 'bg-amber-50/20' : ''}`}>
@@ -1591,25 +1787,16 @@ const TableRowInput: React.FC<TableRowInputProps> = ({
       {/* 13 Input Cells */}
       {entries.map((entry) => {
         const val = (entry[field] as string) || '';
-        const isMilestone = entry.isMilestone;
-
         return (
-          <td
+          <SpreadsheetCellInput
             key={entry.weekNumber}
-            className={`p-0 border-r border-slate-200 text-center ${
-              isMilestone ? 'bg-amber-50/40' : ''
-            }`}
-          >
-            <input
-              type="text"
-              value={val}
-              onChange={(e) => onChange(entry.weekNumber, field, e.target.value)}
-              placeholder="—"
-              className={`w-full px-2.5 py-2 text-center text-xs tabular-nums bg-transparent focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors ${
-                highlight && val ? 'font-semibold text-slate-900' : 'text-slate-700'
-              }`}
-            />
-          </td>
+            canonicalVal={val}
+            isMilestone={entry.isMilestone}
+            highlight={highlight}
+            isLengthMeasurement={isLengthMeasurement}
+            measureUnit={measureUnit}
+            onCommit={(nextVal) => onChange(entry.weekNumber, field, nextVal)}
+          />
         );
       })}
     </tr>
