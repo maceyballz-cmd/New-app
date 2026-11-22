@@ -25,6 +25,7 @@ import {
   getStoredTransformationData,
   saveStoredTransformationData,
   saveStoredNutritionSteps,
+  normalizeDailyWeighIns,
 } from '../data/transformationData';
 import { CalendarDayLog } from '../components/WorkoutCalendarView';
 import {
@@ -354,12 +355,21 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const weekEntries: WeeklyProgressEntry[] = [];
         transSnap.forEach((docSnap) => {
           const data = docSnap.data();
+          let parsedWeighIns: string[] = normalizeDailyWeighIns(undefined);
+          if (typeof data.dailyWeighInsJson === 'string' && data.dailyWeighInsJson.trim().length > 0) {
+            try {
+              parsedWeighIns = normalizeDailyWeighIns(JSON.parse(data.dailyWeighInsJson));
+            } catch {
+              parsedWeighIns = normalizeDailyWeighIns(undefined);
+            }
+          }
           weekEntries.push({
             weekNumber: Number(data.weekNumber),
             weekLabel: data.weekLabel,
             date: data.date,
             isMilestone: data.weekNumber === 0 || data.weekNumber === 4 || data.weekNumber === 8 || data.weekNumber === 12,
             weight: data.weight || '',
+            dailyWeighIns: parsedWeighIns,
             chest: data.chest || '',
             rightArm: data.rightArm || '',
             leftArm: data.leftArm || '',
@@ -585,6 +595,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 weekLabel: String(week.weekLabel || `Week ${week.weekNumber}`).slice(0, 64),
                 date: String(week.date || '').slice(0, 64),
                 weight: String(week.weight || '').slice(0, 32),
+                dailyWeighInsJson: JSON.stringify(normalizeDailyWeighIns(week.dailyWeighIns)).slice(0, 256),
                 chest: String(week.chest || '').slice(0, 32),
                 rightArm: String(week.rightArm || '').slice(0, 32),
                 leftArm: String(week.leftArm || '').slice(0, 32),
@@ -792,12 +803,21 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const weekEntries: WeeklyProgressEntry[] = [];
             snapshot.forEach((docSnap) => {
               const data = docSnap.data();
+              let parsedWeighIns: string[] = normalizeDailyWeighIns(undefined);
+              if (typeof data.dailyWeighInsJson === 'string' && data.dailyWeighInsJson.trim().length > 0) {
+                try {
+                  parsedWeighIns = normalizeDailyWeighIns(JSON.parse(data.dailyWeighInsJson));
+                } catch {
+                  parsedWeighIns = normalizeDailyWeighIns(undefined);
+                }
+              }
               weekEntries.push({
                 weekNumber: Number(data.weekNumber),
                 weekLabel: data.weekLabel,
                 date: data.date,
                 isMilestone: data.weekNumber === 0 || data.weekNumber === 4 || data.weekNumber === 8 || data.weekNumber === 12,
                 weight: data.weight || '',
+                dailyWeighIns: parsedWeighIns,
                 chest: data.chest || '',
                 rightArm: data.rightArm || '',
                 leftArm: data.leftArm || '',
@@ -1106,6 +1126,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
           weekLabel: String(week.weekLabel || `Week ${week.weekNumber}`).slice(0, 64),
           date: String(week.date || '').slice(0, 64),
           weight: String(week.weight || '').slice(0, 32),
+          dailyWeighInsJson: JSON.stringify(normalizeDailyWeighIns(week.dailyWeighIns)).slice(0, 256),
           chest: String(week.chest || '').slice(0, 32),
           rightArm: String(week.rightArm || '').slice(0, 32),
           leftArm: String(week.leftArm || '').slice(0, 32),

@@ -6,6 +6,7 @@ export interface WeeklyProgressEntry {
 
   // Measurements & Weight
   weight: string;
+  dailyWeighIns?: string[]; // 7 daily AM weigh-ins (lbs) for this week
   chest: string;
   rightArm: string;
   leftArm: string;
@@ -65,6 +66,90 @@ export function calculateDateForWeek(startDateStr: string, weekNum: number): str
   }
 }
 
+export function calculateDateForWeekDay(
+  startDateStr: string,
+  weekNum: number,
+  dayOffset: number
+): { shortLabel: string; weekday: string; iso: string; isToday: boolean } {
+  try {
+    const [y, m, d] = startDateStr.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    date.setDate(date.getDate() + weekNum * 7 + dayOffset);
+
+    const now = new Date();
+    const isToday =
+      date.getFullYear() === now.getFullYear() &&
+      date.getMonth() === now.getMonth() &&
+      date.getDate() === now.getDate();
+
+    const isoY = date.getFullYear();
+    const isoM = String(date.getMonth() + 1).padStart(2, '0');
+    const isoD = String(date.getDate()).padStart(2, '0');
+
+    return {
+      shortLabel: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      weekday: date.toLocaleDateString('en-US', { weekday: 'short' }),
+      iso: `${isoY}-${isoM}-${isoD}`,
+      isToday,
+    };
+  } catch {
+    return {
+      shortLabel: `Day ${dayOffset + 1}`,
+      weekday: '',
+      iso: '',
+      isToday: false,
+    };
+  }
+}
+
+export interface SevenDayAverageStats {
+  avg: number | null;
+  count: number;
+  min: number | null;
+  max: number | null;
+  first: number | null;
+  last: number | null;
+}
+
+export function calculateSevenDayAverage(weighIns?: string[]): SevenDayAverageStats {
+  if (!Array.isArray(weighIns)) {
+    return { avg: null, count: 0, min: null, max: null, first: null, last: null };
+  }
+  const nums = weighIns
+    .slice(0, 7)
+    .map((val) => parseFloat(String(val ?? '').trim()))
+    .filter((n) => !Number.isNaN(n) && n > 0);
+
+  if (nums.length === 0) {
+    return { avg: null, count: 0, min: null, max: null, first: null, last: null };
+  }
+
+  const sum = nums.reduce((acc, n) => acc + n, 0);
+  const avg = sum / nums.length;
+  return {
+    avg,
+    count: nums.length,
+    min: Math.min(...nums),
+    max: Math.max(...nums),
+    first: nums[0],
+    last: nums[nums.length - 1],
+  };
+}
+
+export function normalizeDailyWeighIns(weighIns?: unknown): string[] {
+  const result = ['', '', '', '', '', '', ''];
+  if (!Array.isArray(weighIns)) return result;
+  for (let i = 0; i < 7; i++) {
+    const raw = weighIns[i];
+    if (typeof raw === 'string') {
+      result[i] = raw;
+    } else if (typeof raw === 'number' && !Number.isNaN(raw)) {
+      result[i] = String(raw);
+    }
+  }
+  return result;
+}
+
 export function generateDefaultProgressEntries(startDateStr: string = INITIAL_START_DATE): WeeklyProgressEntry[] {
   const entries: WeeklyProgressEntry[] = [];
 
@@ -81,6 +166,7 @@ export function generateDefaultProgressEntries(startDateStr: string = INITIAL_ST
         date,
         isMilestone: true,
         weight: '190.1',
+        dailyWeighIns: ['', '', '', '', '', '', ''],
         chest: '99.1',
         rightArm: '39.2',
         leftArm: '39.2',
@@ -116,6 +202,7 @@ export function generateDefaultProgressEntries(startDateStr: string = INITIAL_ST
         date,
         isMilestone: false,
         weight: '188.9',
+        dailyWeighIns: ['', '', '', '', '', '', ''],
         chest: '99.0',
         rightArm: '39.2',
         leftArm: '39.2',
@@ -151,6 +238,7 @@ export function generateDefaultProgressEntries(startDateStr: string = INITIAL_ST
         date,
         isMilestone: false,
         weight: '187.8',
+        dailyWeighIns: ['', '', '', '', '', '', ''],
         chest: '98.8',
         rightArm: '39.3',
         leftArm: '39.3',
@@ -187,6 +275,7 @@ export function generateDefaultProgressEntries(startDateStr: string = INITIAL_ST
         date,
         isMilestone,
         weight: '',
+        dailyWeighIns: ['', '', '', '', '', '', ''],
         chest: '',
         rightArm: '',
         leftArm: '',
@@ -234,6 +323,7 @@ export function generateEmptyProgressEntries(startDateStr: string = INITIAL_STAR
       date,
       isMilestone,
       weight: '',
+      dailyWeighIns: ['', '', '', '', '', '', ''],
       chest: '',
       rightArm: '',
       leftArm: '',
@@ -284,7 +374,11 @@ export function getStoredTransformationData(): {
     try {
       const parsed = JSON.parse(savedEntries);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return { startDate: savedDate, entries: parsed };
+        const normalized = parsed.map((entry: WeeklyProgressEntry) => ({
+          ...entry,
+          dailyWeighIns: normalizeDailyWeighIns(entry.dailyWeighIns),
+        }));
+        return { startDate: savedDate, entries: normalized };
       }
     } catch {
       // fallback

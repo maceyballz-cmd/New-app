@@ -89,6 +89,7 @@
         "weekLabel": { "type": "string", "maxLength": 64 },
         "date": { "type": "string", "maxLength": 64 },
         "weight": { "type": "string", "maxLength": 32 },
+        "dailyWeighInsJson": { "type": "string", "maxLength": 256 },
         "chest": { "type": "string", "maxLength": 32 },
         "rightArm": { "type": "string", "maxLength": 32 },
         "leftArm": { "type": "string", "maxLength": 32 },

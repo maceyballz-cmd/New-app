@@ -29,6 +29,8 @@ import {
   DEFAULT_NUTRITION_STEPS,
   INITIAL_START_DATE,
   calculateDateForWeek,
+  calculateSevenDayAverage,
+  normalizeDailyWeighIns,
   generateDefaultProgressEntries,
   generateEmptyProgressEntries,
   getStoredTransformationData,
@@ -37,6 +39,7 @@ import {
   saveStoredNutritionSteps,
 } from '../data/transformationData';
 import { CalorieCalculator } from './CalorieCalculator';
+import { DailyWeighInTracker } from './DailyWeighInTracker';
 
 export const TransformationView: React.FC = () => {
   const { saveTransformationToCloud, saveNutritionStepsToCloud } = useSync();
@@ -49,6 +52,26 @@ export const TransformationView: React.FC = () => {
     getStoredNutritionSteps()
   );
   const stepsSyncTimerRef = useRef<number | null>(null);
+  const weighInSyncTimerRef = useRef<number | null>(null);
+
+  const [selectedWeighInWeek, setSelectedWeighInWeek] = useState<number>(() => {
+    try {
+      const initial = getStoredTransformationData();
+      const [y, m, d] = initial.startDate.split('-').map(Number);
+      const start = new Date(y, m - 1, d);
+      const now = new Date();
+      const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const diffDays = Math.floor(
+        (todayMidnight.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+      );
+      if (diffDays >= 0 && diffDays < 13 * 7) {
+        return Math.floor(diffDays / 7);
+      }
+    } catch {
+      // fallback
+    }
+    return 0;
+  });
 
   const [activeSubTab, setActiveSubTab] = useState<'spreadsheet' | 'photos' | 'summary'>('spreadsheet');
   const [selectedPhotoWeek, setSelectedPhotoWeek] = useState<number>(0);
@@ -78,6 +101,7 @@ export const TransformationView: React.FC = () => {
       window.removeEventListener('planche_transformation_updated', handleRemoteUpdate);
       window.removeEventListener('planche_nutrition_steps_updated', handleStepsRemoteUpdate);
       if (stepsSyncTimerRef.current) clearTimeout(stepsSyncTimerRef.current);
+      if (weighInSyncTimerRef.current) clearTimeout(weighInSyncTimerRef.current);
     };
   }, []);
 
@@ -126,6 +150,67 @@ export const TransformationView: React.FC = () => {
     const nextData = { ...data, entries: updatedEntries };
     setData(nextData);
     persistChanges(data.startDate, updatedEntries);
+  };
+
+  // Handle individual Daily AM weigh-in edits with debounced cloud persistence
+  const handleDailyWeighInChange = (weekNumber: number, dayIdx: number, valueLbs: string) => {
+    const updatedEntries = data.entries.map((entry) => {
+      if (entry.weekNumber !== weekNumber) return entry;
+      const nextWeighIns = normalizeDailyWeighIns(entry.dailyWeighIns);
+      nextWeighIns[dayIdx] = valueLbs;
+      return {
+        ...entry,
+        dailyWeighIns: nextWeighIns,
+      };
+    });
+
+    setData((prev) => ({ ...prev, entries: updatedEntries }));
+    saveStoredTransformationData(data.startDate, updatedEntries);
+
+    if (weighInSyncTimerRef.current) {
+      clearTimeout(weighInSyncTimerRef.current);
+    }
+    weighInSyncTimerRef.current = window.setTimeout(() => {
+      saveTransformationToCloud(data.startDate, updatedEntries);
+    }, 600);
+  };
+
+  // Apply calculated 7-day average to the selected week's Weight cell
+  const handleApplyAvgToWeekWeight = (weekNumber: number, avgLbs: string) => {
+    if (weighInSyncTimerRef.current) {
+      clearTimeout(weighInSyncTimerRef.current);
+      weighInSyncTimerRef.current = null;
+    }
+    const targetEntry = data.entries.find((e) => e.weekNumber === weekNumber);
+    const updatedEntries = data.entries.map((entry) =>
+      entry.weekNumber === weekNumber ? { ...entry, weight: avgLbs } : entry
+    );
+    setData((prev) => ({ ...prev, entries: updatedEntries }));
+    persistChanges(
+      data.startDate,
+      updatedEntries,
+      `Synced 7-day average (${avgLbs} lbs) to ${targetEntry?.weekLabel || `Week ${weekNumber}`}`
+    );
+  };
+
+  // Clear all 7 AM weigh-ins for a selected week
+  const handleClearWeekWeighIns = (weekNumber: number) => {
+    if (weighInSyncTimerRef.current) {
+      clearTimeout(weighInSyncTimerRef.current);
+      weighInSyncTimerRef.current = null;
+    }
+    const targetEntry = data.entries.find((e) => e.weekNumber === weekNumber);
+    const updatedEntries = data.entries.map((entry) =>
+      entry.weekNumber === weekNumber
+        ? { ...entry, dailyWeighIns: ['', '', '', '', '', '', ''] }
+        : entry
+    );
+    setData((prev) => ({ ...prev, entries: updatedEntries }));
+    persistChanges(
+      data.startDate,
+      updatedEntries,
+      `Cleared AM weigh-ins for ${targetEntry?.weekLabel || `Week ${weekNumber}`}`
+    );
   };
 
   // Handle edits to the 3 header steps (custom title & notes)
@@ -230,6 +315,13 @@ export const TransformationView: React.FC = () => {
     const rows: string[][] = [
       headers,
       ['Weight', ...data.entries.map((e) => `"${e.weight}"`)],
+      [
+        '7-Day AM Avg (lbs)',
+        ...data.entries.map((e) => {
+          const s = calculateSevenDayAverage(e.dailyWeighIns);
+          return s.avg !== null ? `"${s.avg.toFixed(1)}"` : '""';
+        }),
+      ],
       ['Chest (cm)', ...data.entries.map((e) => `"${e.chest}"`)],
       ['Right Arm (cm)', ...data.entries.map((e) => `"${e.rightArm}"`)],
       ['Left Arm (cm)', ...data.entries.map((e) => `"${e.leftArm}"`)],
@@ -359,6 +451,17 @@ export const TransformationView: React.FC = () => {
   const currentWeekEntry = [...data.entries].reverse().find((e) => e.weight && parseFloat(e.weight) > 0) || null;
   const currentWeight = currentWeekEntry ? parseFloat(currentWeekEntry.weight) : (startWeight || 0);
   const weightChange = currentWeight && startWeight ? (currentWeight - startWeight).toFixed(1) : '0.0';
+
+  const latestSevenDayStats = (() => {
+    const rev = [...data.entries].reverse();
+    for (const entry of rev) {
+      const s = calculateSevenDayAverage(entry.dailyWeighIns);
+      if (s.avg !== null) {
+        return { weekLabel: entry.weekLabel, ...s };
+      }
+    }
+    return null;
+  })();
 
   const startNavel = parseFloat(data.entries[0]?.navelAt) || 0;
   const currentNavelEntry = [...data.entries].reverse().find((e) => e.navelAt && parseFloat(e.navelAt) > 0) || null;
@@ -638,7 +741,11 @@ export const TransformationView: React.FC = () => {
               )}
             </div>
             <span className="text-[10px] text-slate-400 mt-0.5 block">
-              {startWeight > 0 ? `From ${startWeight} lbs at start` : 'Enter start weight below'}
+              {latestSevenDayStats && latestSevenDayStats.avg !== null
+                ? `7-Day AM Avg (${latestSevenDayStats.weekLabel}): ${latestSevenDayStats.avg.toFixed(1)} lbs (${latestSevenDayStats.count}/7d)`
+                : startWeight > 0
+                ? `From ${startWeight} lbs at start`
+                : 'Enter start weight below'}
             </span>
           </div>
 
@@ -725,9 +832,24 @@ export const TransformationView: React.FC = () => {
         </div>
       </div>
 
+      {/* Daily AM Weigh-In (7 Days) & Calculated 7-Day Average */}
+      <DailyWeighInTracker
+        startDate={data.startDate}
+        entries={data.entries}
+        selectedWeek={selectedWeighInWeek}
+        onSelectWeek={setSelectedWeighInWeek}
+        onDailyWeighInChange={handleDailyWeighInChange}
+        onApplyAvgToWeekWeight={handleApplyAvgToWeekWeight}
+        onClearWeekWeighIns={handleClearWeekWeighIns}
+      />
+
       {/* Calorie & Lifestyle TDEE Calculator */}
       <CalorieCalculator
-        initialWeightLbs={currentWeight}
+        initialWeightLbs={
+          latestSevenDayStats && latestSevenDayStats.avg !== null
+            ? Math.round(latestSevenDayStats.avg * 10) / 10
+            : currentWeight
+        }
         entries={data.entries}
         onApplyCalories={handleApplyCalculatorCalories}
       />
@@ -812,6 +934,47 @@ export const TransformationView: React.FC = () => {
                   onChange={handleCellChange}
                   highlight
                 />
+
+                {/* Computed 7-Day AM Weigh-In Average Row */}
+                <tr className="bg-blue-50/20 hover:bg-blue-50/40 transition-colors">
+                  <td className="sticky left-0 z-10 bg-white hover:bg-slate-50 px-4 py-2 font-medium text-slate-800 text-xs shadow-[2px_0_4px_rgba(0,0,0,0.03)] border-r border-slate-200 whitespace-nowrap">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-blue-900">7-Day AM Avg (lbs)</span>
+                      <span className="text-[10px] text-blue-700 font-medium bg-blue-50 border border-blue-200/80 px-1.5 py-0.2 rounded">
+                        Auto 7d
+                      </span>
+                    </div>
+                  </td>
+                  {data.entries.map((entry) => {
+                    const stats = calculateSevenDayAverage(entry.dailyWeighIns);
+                    return (
+                      <td
+                        key={entry.weekNumber}
+                        className={`px-2 py-2 text-center border-r border-slate-200 tabular-nums text-xs ${
+                          entry.isMilestone ? 'bg-amber-50/30' : ''
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setSelectedWeighInWeek(entry.weekNumber)}
+                          title={`Edit ${entry.weekLabel} daily AM weigh-ins`}
+                          className="w-full cursor-pointer hover:text-blue-700 transition-colors"
+                        >
+                          {stats.avg !== null ? (
+                            <span className="font-bold text-blue-800">
+                              {stats.avg.toFixed(1)}{' '}
+                              <span className="text-[10px] font-medium text-slate-400">
+                                ({stats.count}/7)
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
+                        </button>
+                      </td>
+                    );
+                  })}
+                </tr>
 
                 {/* Chest */}
                 <TableRowInput
