@@ -21,6 +21,11 @@ export interface WeeklyProgressEntry {
   targetDailySteps: string;
   actualDailySteps: string;
 
+  // Activity & Training Check-In
+  trainingDays?: string;
+  totalTrainingTime?: string;
+  restDays?: string;
+
   // Nutrition & Schedule
   trainingTime: string;
   mealTimes: string;
@@ -28,14 +33,20 @@ export interface WeeklyProgressEntry {
   trainingDayMacros: string; // "P:180 C:300 F:70"
   restDayCalories: string;
   restDayMacros: string; // "P:180 C:180 F:90"
+  actualDailyCalories?: string;
+  proteinIntake?: string;
   calorieAdherence: string;
   trainingAdherence: string;
 
-  // Biofeedback (0-5 scale)
+  // Biofeedback (0-5 scale) & Weekly Feedback
   sleepScore: string;
   stressScore: string;
   hungerScore: string;
   fatigueScore: string;
+  energyLevel?: string;
+  trainingPerformance?: string;
+  progressNotes?: string;
+  challengesNotes?: string;
 
   // Key Skill / Calisthenics Progress
   keySkillProgress: string;
@@ -520,4 +531,88 @@ export function convertInputToCm(inputRaw: string, unit: MeasureUnit): string {
   if (unit === 'cm') return trimmed;
   return (num * CM_PER_INCH).toFixed(1);
 }
+
+export function parseNumericMetric(raw?: string): number | null {
+  if (!raw) return null;
+  const cleaned = String(raw).replace(/,/g, '').match(/-?\d+(\.\d+)?/);
+  if (!cleaned) return null;
+  const n = parseFloat(cleaned[0]);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function getEffectiveDailyCalorieTarget(entry: WeeklyProgressEntry): number | null {
+  const trainCal = parseNumericMetric(entry.trainingDayCalories);
+  const restCal = parseNumericMetric(entry.restDayCalories);
+  if (trainCal !== null && restCal !== null) {
+    const tDaysRaw = parseNumericMetric(entry.trainingDays);
+    const tDays = tDaysRaw !== null ? Math.min(7, Math.max(0, tDaysRaw)) : 4;
+    const rDays = 7 - tDays;
+    return Math.round((trainCal * tDays + restCal * rDays) / 7);
+  }
+  return trainCal ?? restCal;
+}
+
+export function extractProteinFromMacros(macros?: string): string {
+  if (!macros) return '';
+  const match = macros.match(/P\s*:\s*(\d+)/i);
+  return match ? `${match[1]}g` : '';
+}
+
+export function getWeekCheckInSummaryStats(entry: WeeklyProgressEntry): {
+  filledSections: number;
+  hasWeight: boolean;
+  hasMeasurements: boolean;
+  hasActivity: boolean;
+  hasNutrition: boolean;
+  hasFeedback: boolean;
+} {
+  const sevenDay = calculateSevenDayAverage(entry.dailyWeighIns);
+  const hasWeight = Boolean(parseNumericMetric(entry.weight) || sevenDay.avg !== null);
+  const hasMeasurements = Boolean(
+    entry.navelAt ||
+      entry.chest ||
+      entry.rightArm ||
+      entry.leftArm ||
+      entry.navelAbove ||
+      entry.navelBelow ||
+      entry.hips ||
+      entry.rightThigh ||
+      entry.leftThigh
+  );
+  const hasActivity = Boolean(
+    entry.actualDailySteps || entry.trainingDays || entry.totalTrainingTime || entry.restDays
+  );
+  const hasNutrition = Boolean(
+    entry.actualDailyCalories ||
+      entry.proteinIntake ||
+      entry.calorieAdherence ||
+      entry.trainingDayCalories ||
+      entry.restDayCalories
+  );
+  const hasFeedback = Boolean(
+    entry.energyLevel ||
+      entry.trainingPerformance ||
+      entry.fatigueScore ||
+      entry.progressNotes ||
+      entry.challengesNotes ||
+      entry.keySkillProgress
+  );
+
+  const filledSections = [
+    hasWeight || hasMeasurements,
+    hasActivity,
+    hasNutrition,
+    hasFeedback,
+  ].filter(Boolean).length;
+
+  return {
+    filledSections,
+    hasWeight,
+    hasMeasurements,
+    hasActivity,
+    hasNutrition,
+    hasFeedback,
+  };
+}
+
 

@@ -144,6 +144,121 @@ const buildFirestoreWorkoutLogPayload = (log: LogEntry, cleanId: string, uid: st
   return payload;
 };
 
+const mapFirestoreTransformationWeek = (data: Record<string, any>): WeeklyProgressEntry => {
+  let parsedWeighIns: string[] = normalizeDailyWeighIns(undefined);
+  if (typeof data.dailyWeighInsJson === 'string' && data.dailyWeighInsJson.trim().length > 0) {
+    try {
+      parsedWeighIns = normalizeDailyWeighIns(JSON.parse(data.dailyWeighInsJson));
+    } catch {
+      parsedWeighIns = normalizeDailyWeighIns(undefined);
+    }
+  }
+  const weekNum = Number(data.weekNumber);
+  return {
+    weekNumber: weekNum,
+    weekLabel: data.weekLabel || (weekNum === 0 ? 'Start Date' : `Week ${weekNum}`),
+    date: data.date || '',
+    isMilestone: weekNum === 0 || weekNum === 4 || weekNum === 8 || weekNum === 12,
+    weight: data.weight || '',
+    dailyWeighIns: parsedWeighIns,
+    chest: data.chest || '',
+    rightArm: data.rightArm || '',
+    leftArm: data.leftArm || '',
+    navelAbove: data.navelAbove || '',
+    navelAt: data.navelAt || '',
+    navelBelow: data.navelBelow || '',
+    hips: data.hips || '',
+    rightThigh: data.rightThigh || '',
+    leftThigh: data.leftThigh || '',
+    height: data.height || '',
+    targetRateWeight: data.targetRateWeight || '',
+    targetDailySteps: data.targetDailySteps || '',
+    actualDailySteps: data.actualDailySteps || '',
+    trainingDays: data.trainingDays || '',
+    totalTrainingTime: data.totalTrainingTime || '',
+    restDays: data.restDays || '',
+    trainingTime: data.trainingTime || '',
+    mealTimes: data.mealTimes || '',
+    trainingDayCalories: data.trainingDayCalories || '',
+    trainingDayMacros: data.trainingDayMacros || '',
+    restDayCalories: data.restDayCalories || '',
+    restDayMacros: data.restDayMacros || '',
+    actualDailyCalories: data.actualDailyCalories || '',
+    proteinIntake: data.proteinIntake || '',
+    calorieAdherence: data.calorieAdherence || '',
+    trainingAdherence: data.trainingAdherence || '',
+    sleepScore: data.sleepScore || '',
+    stressScore: data.stressScore || '',
+    hungerScore: data.hungerScore || '',
+    fatigueScore: data.fatigueScore || '',
+    energyLevel: data.energyLevel || '',
+    trainingPerformance: data.trainingPerformance || '',
+    progressNotes: data.progressNotes || '',
+    challengesNotes: data.challengesNotes || '',
+    keySkillProgress: data.keySkillProgress || '',
+    photos: {
+      front: data.photoFront,
+      back: data.photoBack,
+      leftSide: data.photoLeftSide,
+      rightSide: data.photoRightSide,
+    },
+  };
+};
+
+const buildFirestoreTransformationWeekPayload = (
+  week: WeeklyProgressEntry,
+  weekId: string,
+  uid: string
+) => ({
+  weekId,
+  userId: uid,
+  weekNumber: Number(week.weekNumber),
+  weekLabel: String(week.weekLabel || `Week ${week.weekNumber}`).slice(0, 64),
+  date: String(week.date || '').slice(0, 64),
+  weight: String(week.weight || '').slice(0, 32),
+  dailyWeighInsJson: JSON.stringify(normalizeDailyWeighIns(week.dailyWeighIns)).slice(0, 256),
+  chest: String(week.chest || '').slice(0, 32),
+  rightArm: String(week.rightArm || '').slice(0, 32),
+  leftArm: String(week.leftArm || '').slice(0, 32),
+  navelAbove: String(week.navelAbove || '').slice(0, 32),
+  navelAt: String(week.navelAt || '').slice(0, 32),
+  navelBelow: String(week.navelBelow || '').slice(0, 32),
+  hips: String(week.hips || '').slice(0, 32),
+  rightThigh: String(week.rightThigh || '').slice(0, 32),
+  leftThigh: String(week.leftThigh || '').slice(0, 32),
+  height: String(week.height || '').slice(0, 32),
+  targetRateWeight: String(week.targetRateWeight || '').slice(0, 64),
+  targetDailySteps: String(week.targetDailySteps || '').slice(0, 32),
+  actualDailySteps: String(week.actualDailySteps || '').slice(0, 32),
+  trainingDays: String(week.trainingDays || '').slice(0, 32),
+  totalTrainingTime: String(week.totalTrainingTime || '').slice(0, 64),
+  restDays: String(week.restDays || '').slice(0, 32),
+  trainingTime: String(week.trainingTime || '').slice(0, 64),
+  mealTimes: String(week.mealTimes || '').slice(0, 128),
+  trainingDayCalories: String(week.trainingDayCalories || '').slice(0, 64),
+  trainingDayMacros: String(week.trainingDayMacros || '').slice(0, 64),
+  restDayCalories: String(week.restDayCalories || '').slice(0, 64),
+  restDayMacros: String(week.restDayMacros || '').slice(0, 64),
+  actualDailyCalories: String(week.actualDailyCalories || '').slice(0, 32),
+  proteinIntake: String(week.proteinIntake || '').slice(0, 32),
+  calorieAdherence: String(week.calorieAdherence || '').slice(0, 64),
+  trainingAdherence: String(week.trainingAdherence || '').slice(0, 64),
+  sleepScore: String(week.sleepScore || '').slice(0, 16),
+  stressScore: String(week.stressScore || '').slice(0, 16),
+  hungerScore: String(week.hungerScore || '').slice(0, 16),
+  fatigueScore: String(week.fatigueScore || '').slice(0, 32),
+  energyLevel: String(week.energyLevel || '').slice(0, 64),
+  trainingPerformance: String(week.trainingPerformance || '').slice(0, 64),
+  progressNotes: String(week.progressNotes || '').slice(0, 1024),
+  challengesNotes: String(week.challengesNotes || '').slice(0, 1024),
+  keySkillProgress: String(week.keySkillProgress || '').slice(0, 512),
+  photoFront: String(week.photos?.front || '').slice(0, 300000),
+  photoBack: String(week.photos?.back || '').slice(0, 300000),
+  photoLeftSide: String(week.photos?.leftSide || '').slice(0, 300000),
+  photoRightSide: String(week.photos?.rightSide || '').slice(0, 300000),
+  updatedAt: new Date().toISOString(),
+});
+
 export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error' | 'offline';
 
 interface SyncStats {
@@ -365,55 +480,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!transSnap.empty) {
         const weekEntries: WeeklyProgressEntry[] = [];
         transSnap.forEach((docSnap) => {
-          const data = docSnap.data();
-          let parsedWeighIns: string[] = normalizeDailyWeighIns(undefined);
-          if (typeof data.dailyWeighInsJson === 'string' && data.dailyWeighInsJson.trim().length > 0) {
-            try {
-              parsedWeighIns = normalizeDailyWeighIns(JSON.parse(data.dailyWeighInsJson));
-            } catch {
-              parsedWeighIns = normalizeDailyWeighIns(undefined);
-            }
-          }
-          weekEntries.push({
-            weekNumber: Number(data.weekNumber),
-            weekLabel: data.weekLabel,
-            date: data.date,
-            isMilestone: data.weekNumber === 0 || data.weekNumber === 4 || data.weekNumber === 8 || data.weekNumber === 12,
-            weight: data.weight || '',
-            dailyWeighIns: parsedWeighIns,
-            chest: data.chest || '',
-            rightArm: data.rightArm || '',
-            leftArm: data.leftArm || '',
-            navelAbove: data.navelAbove || '',
-            navelAt: data.navelAt || '',
-            navelBelow: data.navelBelow || '',
-            hips: data.hips || '',
-            rightThigh: data.rightThigh || '',
-            leftThigh: data.leftThigh || '',
-            height: data.height || '',
-            targetRateWeight: '',
-            targetDailySteps: '',
-            actualDailySteps: '',
-            trainingTime: '',
-            mealTimes: '',
-            trainingDayCalories: data.trainingDayCalories || '',
-            trainingDayMacros: data.trainingDayMacros || '',
-            restDayCalories: data.restDayCalories || '',
-            restDayMacros: data.restDayMacros || '',
-            calorieAdherence: '',
-            trainingAdherence: '',
-            sleepScore: data.sleepScore || '',
-            stressScore: data.stressScore || '',
-            hungerScore: data.hungerScore || '',
-            fatigueScore: data.fatigueScore || '',
-            keySkillProgress: data.keySkillProgress || '',
-            photos: {
-              front: data.photoFront,
-              back: data.photoBack,
-              leftSide: data.photoLeftSide,
-              rightSide: data.photoRightSide,
-            },
-          });
+          weekEntries.push(mapFirestoreTransformationWeek(docSnap.data()));
         });
         weekEntries.sort((a, b) => a.weekNumber - b.weekNumber);
         const effectiveStartDate = metaStartDate || weekEntries[0]?.date || '2026-10-17';
@@ -599,39 +666,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
             localTrans.entries.forEach((week) => {
               const weekId = `week_${week.weekNumber}`;
               const weekRef = doc(db, 'users', uid, 'transformationWeeks', weekId);
-              batch.set(weekRef, {
-                weekId,
-                userId: uid,
-                weekNumber: Number(week.weekNumber),
-                weekLabel: String(week.weekLabel || `Week ${week.weekNumber}`).slice(0, 64),
-                date: String(week.date || '').slice(0, 64),
-                weight: String(week.weight || '').slice(0, 32),
-                dailyWeighInsJson: JSON.stringify(normalizeDailyWeighIns(week.dailyWeighIns)).slice(0, 256),
-                chest: String(week.chest || '').slice(0, 32),
-                rightArm: String(week.rightArm || '').slice(0, 32),
-                leftArm: String(week.leftArm || '').slice(0, 32),
-                navelAbove: String(week.navelAbove || '').slice(0, 32),
-                navelAt: String(week.navelAt || '').slice(0, 32),
-                navelBelow: String(week.navelBelow || '').slice(0, 32),
-                hips: String(week.hips || '').slice(0, 32),
-                rightThigh: String(week.rightThigh || '').slice(0, 32),
-                leftThigh: String(week.leftThigh || '').slice(0, 32),
-                height: String(week.height || '').slice(0, 32),
-                trainingDayCalories: String(week.trainingDayCalories || '').slice(0, 64),
-                trainingDayMacros: String(week.trainingDayMacros || '').slice(0, 64),
-                restDayCalories: String(week.restDayCalories || '').slice(0, 64),
-                restDayMacros: String(week.restDayMacros || '').slice(0, 64),
-                sleepScore: String(week.sleepScore || '').slice(0, 16),
-                stressScore: String(week.stressScore || '').slice(0, 16),
-                hungerScore: String(week.hungerScore || '').slice(0, 16),
-                fatigueScore: String(week.fatigueScore || '').slice(0, 16),
-                keySkillProgress: String(week.keySkillProgress || '').slice(0, 512),
-                photoFront: String(week.photos?.front || '').slice(0, 300000),
-                photoBack: String(week.photos?.back || '').slice(0, 300000),
-                photoLeftSide: String(week.photos?.leftSide || '').slice(0, 300000),
-                photoRightSide: String(week.photos?.rightSide || '').slice(0, 300000),
-                updatedAt: new Date().toISOString(),
-              });
+              batch.set(weekRef, buildFirestoreTransformationWeekPayload(week, weekId, uid));
             });
             await batch.commit();
           }
@@ -813,55 +848,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (!snapshot.empty) {
             const weekEntries: WeeklyProgressEntry[] = [];
             snapshot.forEach((docSnap) => {
-              const data = docSnap.data();
-              let parsedWeighIns: string[] = normalizeDailyWeighIns(undefined);
-              if (typeof data.dailyWeighInsJson === 'string' && data.dailyWeighInsJson.trim().length > 0) {
-                try {
-                  parsedWeighIns = normalizeDailyWeighIns(JSON.parse(data.dailyWeighInsJson));
-                } catch {
-                  parsedWeighIns = normalizeDailyWeighIns(undefined);
-                }
-              }
-              weekEntries.push({
-                weekNumber: Number(data.weekNumber),
-                weekLabel: data.weekLabel,
-                date: data.date,
-                isMilestone: data.weekNumber === 0 || data.weekNumber === 4 || data.weekNumber === 8 || data.weekNumber === 12,
-                weight: data.weight || '',
-                dailyWeighIns: parsedWeighIns,
-                chest: data.chest || '',
-                rightArm: data.rightArm || '',
-                leftArm: data.leftArm || '',
-                navelAbove: data.navelAbove || '',
-                navelAt: data.navelAt || '',
-                navelBelow: data.navelBelow || '',
-                hips: data.hips || '',
-                rightThigh: data.rightThigh || '',
-                leftThigh: data.leftThigh || '',
-                height: data.height || '',
-                targetRateWeight: '',
-                targetDailySteps: '',
-                actualDailySteps: '',
-                trainingTime: '',
-                mealTimes: '',
-                trainingDayCalories: data.trainingDayCalories || '',
-                trainingDayMacros: data.trainingDayMacros || '',
-                restDayCalories: data.restDayCalories || '',
-                restDayMacros: data.restDayMacros || '',
-                calorieAdherence: '',
-                trainingAdherence: '',
-                sleepScore: data.sleepScore || '',
-                stressScore: data.stressScore || '',
-                hungerScore: data.hungerScore || '',
-                fatigueScore: data.fatigueScore || '',
-                keySkillProgress: data.keySkillProgress || '',
-                photos: {
-                  front: data.photoFront,
-                  back: data.photoBack,
-                  leftSide: data.photoLeftSide,
-                  rightSide: data.photoRightSide,
-                },
-              });
+              weekEntries.push(mapFirestoreTransformationWeek(docSnap.data()));
             });
 
             weekEntries.sort((a, b) => a.weekNumber - b.weekNumber);
@@ -1137,39 +1124,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
       entries.forEach((week) => {
         const weekId = `week_${week.weekNumber}`;
         const weekRef = doc(db, 'users', user.uid, 'transformationWeeks', weekId);
-        batch.set(weekRef, {
-          weekId,
-          userId: user.uid,
-          weekNumber: Number(week.weekNumber),
-          weekLabel: String(week.weekLabel || `Week ${week.weekNumber}`).slice(0, 64),
-          date: String(week.date || '').slice(0, 64),
-          weight: String(week.weight || '').slice(0, 32),
-          dailyWeighInsJson: JSON.stringify(normalizeDailyWeighIns(week.dailyWeighIns)).slice(0, 256),
-          chest: String(week.chest || '').slice(0, 32),
-          rightArm: String(week.rightArm || '').slice(0, 32),
-          leftArm: String(week.leftArm || '').slice(0, 32),
-          navelAbove: String(week.navelAbove || '').slice(0, 32),
-          navelAt: String(week.navelAt || '').slice(0, 32),
-          navelBelow: String(week.navelBelow || '').slice(0, 32),
-          hips: String(week.hips || '').slice(0, 32),
-          rightThigh: String(week.rightThigh || '').slice(0, 32),
-          leftThigh: String(week.leftThigh || '').slice(0, 32),
-          height: String(week.height || '').slice(0, 32),
-          trainingDayCalories: String(week.trainingDayCalories || '').slice(0, 64),
-          trainingDayMacros: String(week.trainingDayMacros || '').slice(0, 64),
-          restDayCalories: String(week.restDayCalories || '').slice(0, 64),
-          restDayMacros: String(week.restDayMacros || '').slice(0, 64),
-          sleepScore: String(week.sleepScore || '').slice(0, 16),
-          stressScore: String(week.stressScore || '').slice(0, 16),
-          hungerScore: String(week.hungerScore || '').slice(0, 16),
-          fatigueScore: String(week.fatigueScore || '').slice(0, 16),
-          keySkillProgress: String(week.keySkillProgress || '').slice(0, 512),
-          photoFront: String(week.photos?.front || '').slice(0, 300000),
-          photoBack: String(week.photos?.back || '').slice(0, 300000),
-          photoLeftSide: String(week.photos?.leftSide || '').slice(0, 300000),
-          photoRightSide: String(week.photos?.rightSide || '').slice(0, 300000),
-          updatedAt: new Date().toISOString(),
-        });
+        batch.set(weekRef, buildFirestoreTransformationWeekPayload(week, weekId, user.uid));
       });
 
       await batch.commit();
